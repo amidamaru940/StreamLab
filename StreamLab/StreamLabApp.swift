@@ -4,59 +4,130 @@ import Combine
 // Keep the classic SwiftUI property wrapper across iOS 17–27 SDKs.
 private typealias ViewState<Value> = SwiftUI.State<Value>
 
+/// E1: what the on-device model actually did, kept separate from "is it available".
+struct ModelDiagnostics {
+    var availability = LocalChatWriter.Availability(ready: false, code: "checking", detail: "Checking…")
+    var languages = ""
+    var requests = 0, successes = 0, failures = 0
+    var linesAccepted = 0
+    var lastLatency: Double?
+    var lastSuccess: Date?
+    var lastError: String?
+    var lastErrorAt: Date?
+    var testRunning = false
+    var testResult: String?
+    var system: String { "iOS " + ProcessInfo.processInfo.operatingSystemVersionString }
+}
+
 @MainActor final class StreamStore: ObservableObject {
     @Published var engine: Simulation
-    @Published private(set) var writingStatus = "Checking on-device writing…"
+    @Published private(set) var diagnostics = ModelDiagnostics()
     private var writingTask: Task<Void, Never>?
-    private var lastWritingRequest = -Double.infinity
+    private var nextWritingAllowed = -Double.infinity
+    private var failureStreak = 0
     private var lastAvailabilityCheck = -Double.infinity
+    private var lastCommunitySave = ProcessInfo.processInfo.systemUptime
     private var timer: AnyCancellable?
     private var lastTick = ProcessInfo.processInfo.systemUptime
+    private static let settingsKey = "streamlab.settings.v5"
+    private static let communityKey = "streamlab.community.v1"
     init() {
         // Migrate existing USD settings once; v5 adds mixed chat and slower tips.
-        let saved = UserDefaults.standard.data(forKey: "streamlab.settings.v5") ?? UserDefaults.standard.data(forKey: "streamlab.settings.v3")
+        let saved = UserDefaults.standard.data(forKey: Self.settingsKey) ?? UserDefaults.standard.data(forKey: "streamlab.settings.v3")
         let settings = saved.flatMap { try? JSONDecoder().decode(Settings.self, from: $0) } ?? Settings()
-        engine = Simulation(settings: settings)
+        engine = Simulation(settings: settings, community: Self.loadCommunity())
+        diagnostics.languages = LocalChatWriter.languageSummary
         timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             guard let self else { return }
             let now = ProcessInfo.processInfo.systemUptime
             self.engine.tick(now - self.lastTick)
             self.lastTick = now
             self.refreshWriting(now: now)
+            if now - self.lastCommunitySave > 60 { self.saveCommunity() }
         }
+    }
+    /// What the reaction engine is using right now and why (E4).
+    var writingStatus: String {
+        if !engine.settings.localWriting { return "Using the offline library · on-device writing is off" }
+        if !diagnostics.availability.ready { return "Using the offline library · " + diagnostics.availability.detail }
+        if let error = diagnostics.lastError, let at = diagnostics.lastErrorAt, at > (diagnostics.lastSuccess ?? .distantPast) {
+            return "Using the offline library · last on-device attempt failed: " + error
+        }
+        if diagnostics.lastSuccess != nil { return "Apple Intelligence · writing on this iPhone" }
+        return "Apple Intelligence available · waiting for the first lines"
     }
     func save(_ settings: Settings) {
         engine.apply(settings)
-        if let data = try? JSONEncoder().encode(engine.settings) { UserDefaults.standard.set(data, forKey: "streamlab.settings.v5") }
+        if let data = try? JSONEncoder().encode(engine.settings) { UserDefaults.standard.set(data, forKey: Self.settingsKey) }
+        lastAvailabilityCheck = -.infinity
     }
-    func reset() { writingTask?.cancel(); engine = Simulation(settings: engine.settings); lastWritingRequest = -.infinity }
-    func stopWriting() { writingTask?.cancel() }
+    func reset() {
+        writingTask?.cancel(); writingTask = nil
+        saveCommunity()
+        engine = Simulation(settings: engine.settings, community: Self.loadCommunity())
+        nextWritingAllowed = -.infinity
+    }
+    func stopWriting() { writingTask?.cancel(); writingTask = nil }
+    func saveCommunity() {
+        lastCommunitySave = ProcessInfo.processInfo.systemUptime
+        if let data = try? JSONEncoder().encode(engine.communitySnapshot) { UserDefaults.standard.set(data, forKey: Self.communityKey) }
+    }
+    private static func loadCommunity() -> [Participant]? {
+        guard let data = UserDefaults.standard.data(forKey: communityKey),
+              let snapshot = try? JSONDecoder().decode(CommunitySnapshot.self, from: data), snapshot.version == 1 else { return nil }
+        return snapshot.people
+    }
+    func runModelTest() {
+        guard !diagnostics.testRunning else { return }
+        diagnostics.testRunning = true; diagnostics.testResult = nil
+        let started = ProcessInfo.processInfo.systemUptime
+        Task { [weak self] in
+            do {
+                let text = try await LocalChatWriter.selfTest()
+                guard let self else { return }
+                let seconds = ProcessInfo.processInfo.systemUptime - started
+                self.diagnostics.testResult = String(format: "OK in %.1f s: ", seconds) + "“" + String(text.prefix(120)) + "”"
+            } catch {
+                self?.diagnostics.testResult = "Failed: " + LocalChatWriter.describe(error)
+            }
+            self?.diagnostics.testRunning = false
+        }
+    }
     private func refreshWriting(now: Double) {
         if !engine.running || !engine.settings.localWriting {
-            writingTask?.cancel()
-            if !engine.settings.localWriting { writingStatus = "Offline conversations · on-device writing is off" }
+            if writingTask != nil { writingTask?.cancel(); writingTask = nil }
             return
         }
-        guard now - lastAvailabilityCheck >= 3 else { return }
-        lastAvailabilityCheck = now
-        let availability = LocalChatWriter.availability
-        if writingTask == nil { writingStatus = availability.detail }
-        guard availability.ready, writingTask == nil, engine.needsWriting, now - lastWritingRequest >= 20 else { return }
-        lastWritingRequest = now
-        let snapshot = engine.writingContext
-        writingStatus = "Apple Intelligence · writing locally"
+        if now - lastAvailabilityCheck >= 3 {
+            lastAvailabilityCheck = now
+            diagnostics.availability = LocalChatWriter.availability(pauseInLowPower: engine.settings.pauseModelInLowPower)
+        }
+        // E2: small, frequent requests. Generation does not delay chat: lines are already scheduled with library text.
+        guard diagnostics.availability.ready, writingTask == nil, now >= nextWritingAllowed,
+              let request = engine.makeWritingRequest() else { return }
+        nextWritingAllowed = now + 4
+        diagnostics.requests += 1
         writingTask = Task { [weak self] in
-            defer { self?.writingTask = nil }
+            let started = ProcessInfo.processInfo.systemUptime
             do {
-                let batch = try await LocalChatWriter.generate(snapshot)
+                let result = try await LocalChatWriter.generate(request)
                 guard !Task.isCancelled, let self else { return }
-                self.engine.acceptWriting(batch, for: snapshot.token)
-                self.writingStatus = "Apple Intelligence · on-device writing"
+                let accepted = self.engine.acceptWriting(result, for: request)
+                self.diagnostics.successes += 1
+                self.diagnostics.linesAccepted += accepted
+                self.diagnostics.lastLatency = ProcessInfo.processInfo.systemUptime - started
+                self.diagnostics.lastSuccess = Date()
+                self.failureStreak = 0
             } catch {
                 guard !Task.isCancelled, let self else { return }
-                self.writingStatus = "Offline conversations · local AI will retry automatically"
-                self.lastWritingRequest = ProcessInfo.processInfo.systemUptime + 15
+                self.diagnostics.failures += 1
+                self.diagnostics.lastError = LocalChatWriter.describe(error)
+                self.diagnostics.lastErrorAt = Date()
+                self.failureStreak += 1
+                // Back off after repeated failures; the offline library keeps the chat going meanwhile.
+                self.nextWritingAllowed = ProcessInfo.processInfo.systemUptime + min(120, 10 * pow(2, Double(min(self.failureStreak, 4))))
             }
+            self?.writingTask = nil
         }
     }
 }
@@ -80,6 +151,7 @@ struct LiveView: View {
     @ViewState private var showTitleEditor = false
     @ViewState private var draft = ""
     @ViewState private var followChat = true
+    @ViewState private var unseen = 0
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -101,7 +173,7 @@ struct LiveView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             // Backgrounding pauses everything. Permission sheets only make the scene inactive.
-            if phase == .background { store.engine.pause(); store.stopWriting(); camera.stop() }
+            if phase == .background { store.engine.pause(); store.stopWriting(); store.saveCommunity(); camera.stop() }
             if phase == .active && cameraEnabled && store.engine.running { camera.start() }
         }
         .onAppear { camera.setAnalysisEnabled(store.engine.settings.cameraReactions) }
@@ -243,8 +315,23 @@ struct LiveView: View {
                         }
                     }.padding(14)
                 }.frame(maxHeight: .infinity)
-                    .onChange(of: store.engine.messages.last?.id) { _, id in if followChat, let id { proxy.scrollTo(id, anchor: .bottom) } }
+                    // D3: reading older messages pauses auto-scroll; a pill brings you back.
+                    .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { value in if value.translation.height > 24 { followChat = false } })
+                    .onChange(of: store.engine.messages.last?.id) { _, id in
+                        if followChat, let id { proxy.scrollTo(id, anchor: .bottom) } else { unseen += 1 }
+                    }
+                    .onChange(of: followChat) { _, follow in
+                        if follow { unseen = 0; if let id = store.engine.messages.last?.id { proxy.scrollTo(id, anchor: .bottom) } }
+                    }
                     .onAppear { if let id = store.engine.messages.last?.id { proxy.scrollTo(id, anchor: .bottom) } }
+                    .overlay(alignment: .bottom) {
+                        if !followChat && unseen > 0 {
+                            Button { followChat = true } label: {
+                                Label(unseen == 1 ? "1 new message" : "\(min(unseen, 99))\(unseen > 99 ? "+" : "") new messages", systemImage: "arrow.down")
+                                    .font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8).background(accent, in: Capsule())
+                            }.tint(.white).padding(.bottom, 8)
+                        }
+                    }
             }
         }
     }
@@ -279,7 +366,7 @@ struct LiveView: View {
                 }
                 Text("MOMENTS").font(.caption.bold()).foregroundStyle(.secondary)
                 Text(store.engine.context.map { "Current cue: \($0.rawValue)" } ?? "Choose a moment for chat to react to.").font(.subheadline).foregroundStyle(.secondary)
-                if store.engine.contentExhausted { Text("The offline library is running low for this scene. On-device AI, when available, can keep writing fresh lines.").font(.caption).foregroundStyle(.secondary) }
+                if store.engine.contentExhausted { Text("Chat is quieter: the offline library has used most conversations for this scene. On-device AI, when available, keeps adding fresh lines.").font(.caption).foregroundStyle(.secondary) }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(StreamEvent.manualCases) { event in
                         Button { store.engine.trigger(event); showEvents = false } label: {
@@ -290,6 +377,22 @@ struct LiveView: View {
                 Button { store.engine.donate(); showEvents = false } label: {
                     Label("Send a tip", systemImage: "gift.fill").frame(maxWidth: .infinity).padding(12)
                 }.buttonStyle(.borderedProminent).disabled(store.engine.donationQueue.count >= 12)
+                if !store.engine.giftHistory.isEmpty {
+                    Text("RECENT GIFTS · \(store.engine.giftHistory.count) · \(USD.format(store.engine.total))").font(.caption.bold()).foregroundStyle(.secondary)
+                    ForEach(store.engine.giftHistory.suffix(6).reversed()) { gift in
+                        HStack {
+                            Text(gift.name).font(.subheadline).lineLimit(1)
+                            if gift.returning { Image(systemName: "arrow.uturn.left.circle").foregroundStyle(.secondary).accessibilityLabel("Returning supporter") }
+                            Spacer()
+                            Text(USD.format(gift.amount)).font(.subheadline.monospacedDigit().bold())
+                        }
+                    }
+                }
+                if let donorID = store.engine.lastDonorID, let donor = store.engine.audience[donorID] {
+                    Button { store.engine.thankLatestDonor(); showEvents = false } label: {
+                        Label("Thank \(donor.name)", systemImage: "heart").frame(maxWidth: .infinity).padding(12)
+                    }.buttonStyle(.bordered)
+                }
                 Spacer()
             }.disabled(!store.engine.running).padding(20)
             }.navigationTitle("Creator studio").navigationBarTitleDisplayMode(.inline).tint(accent)
@@ -368,9 +471,11 @@ struct SettingsView: View {
                 Section("Reaction engine") {
                     Label("Free · on this iPhone", systemImage: "iphone")
                     Toggle("Use Apple Intelligence when available", isOn: $settings.localWriting)
+                    Toggle("Pause it in Low Power Mode", isOn: $settings.pauseModelInLowPower)
                     Text(store.writingStatus).font(.caption).foregroundStyle(.secondary)
-                    Text("Fresh English chat is written on this device when Apple's model is available. Otherwise, complete offline conversations take over. No API key or usage charges.").font(.caption).foregroundStyle(.secondary)
-                    LabeledContent("Cloud API", value: "Not connected")
+                    Text("StreamLab decides who speaks, to whom and when. Apple's on-device model, when available, only rewords lines that are already scheduled. The offline library always keeps chat going. No API key or usage charges.").font(.caption).foregroundStyle(.secondary)
+                    NavigationLink("Diagnostics") { DiagnosticsView(store: store) }
+                    LabeledContent("Cloud", value: "Not connected")
                     Text("Cloud mode is planned for a later update. This version never uploads your camera frames.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Camera & privacy") {
@@ -418,5 +523,50 @@ struct TitleEditor: View {
                     }
                 }.onAppear { title = store.engine.settings.streamTitle; name = store.engine.settings.channelName }
         }.tint(accent)
+    }
+}
+
+/// E1: separates "available", "generated", "accepted" and "shown".
+struct DiagnosticsView: View {
+    @ObservedObject var store: StreamStore
+    var body: some View {
+        let d = store.diagnostics
+        let m = store.engine.metrics
+        Form {
+            Section("Apple Intelligence") {
+                LabeledContent("System", value: d.system)
+                LabeledContent("Model state", value: d.availability.ready ? "Available" : "Unavailable")
+                Text(d.availability.detail).font(.caption).foregroundStyle(.secondary)
+                Text(d.languages).font(.caption).foregroundStyle(.secondary)
+                Button(d.testRunning ? "Testing…" : "Run a quick English test") { store.runModelTest() }.disabled(d.testRunning)
+                if let result = d.testResult { Text(result).font(.caption) }
+            }
+            Section("During this session") {
+                LabeledContent("Requests", value: "\(d.requests)")
+                LabeledContent("Succeeded / failed", value: "\(d.successes) / \(d.failures)")
+                LabeledContent("Lines accepted", value: "\(d.linesAccepted)")
+                LabeledContent("Model lines shown", value: "\(m.modelDelivered)")
+                LabeledContent("Model lines discarded (late or stale)", value: "\(m.modelDiscarded)")
+                if let latency = d.lastLatency { LabeledContent("Last generation", value: String(format: "%.1f s", latency)) }
+                if let success = d.lastSuccess { LabeledContent("Last success", value: success.formatted(date: .omitted, time: .standard)) }
+                if let error = d.lastError {
+                    LabeledContent("Last error", value: d.lastErrorAt?.formatted(date: .omitted, time: .standard) ?? "")
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("Chat timing") {
+                LabeledContent("Messages shown", value: "\(m.totalDelivered)")
+                LabeledContent("Viewers in chat now", value: "\(store.engine.presentChatters)")
+                if let median = EngineMetrics.median(m.hostReplyDelays), let slow = EngineMetrics.percentile(m.hostReplyDelays, 0.9) {
+                    LabeledContent("Replies to you · median / slow", value: String(format: "%.1f s / %.1f s", median, slow))
+                }
+                if let median = EngineMetrics.median(m.reactionDelays) {
+                    LabeledContent("Reactions to moments · median", value: String(format: "%.1f s", median))
+                }
+                let dropped = DropReason.allCases.map { "\($0.rawValue) \(m.dropped[$0] ?? 0)" }.joined(separator: " · ")
+                Text("Cancelled before showing: " + dropped).font(.caption).foregroundStyle(.secondary)
+                Text("Counts and timings only. No camera frames, audio or your messages are stored.").font(.caption).foregroundStyle(.secondary)
+            }
+        }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
     }
 }

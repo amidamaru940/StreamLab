@@ -33,6 +33,13 @@ enum ConversationLibrary {
         "Outdoor view": [["Looks like we're outside.", "A change of scenery."], ["Taking chat out for a bit?", "I'm coming along from the sofa."], ["An outdoor view for a change.", "I'll take it."], ["Looks like an IRL moment.", "What's the plan?"], ["A little break from indoor walls.", "Nice to have something different in view."]],
         "Instrument in view": [["Is that an instrument in the shot?", "I noticed it too."], ["A music setup?", "What are you working on?"], ["Looks like music might be on the agenda.", "Practice session?"], ["Instrument spotted.", "What's the story behind it?"], ["Are we getting a little practice time?", "I'd watch the process."]]
     ]
+    /// v5 exchanges reused as single question-and-answer seeds. Their third lines are not used:
+    /// they did not say who was speaking, which made stories jump between people.
+    static let legacyTopics: [ChatTopic] = exchanges.keys.sorted().filter { $0 == "general" || Scenario(rawValue: $0) != nil }.flatMap { key in
+        (exchanges[key] ?? []).enumerated().map { item in
+            ChatTopic(id: "v5." + key + ":" + String(item.offset), scenes: [key == "general" ? "any" : key], openers: [item.element[0]], answers: Array(item.element.dropFirst().prefix(1)), followUps: [], hostKeywords: [])
+        }
+    }
     static func threads(event: StreamEvent?, scenario: Scenario) -> [ConversationThread] {
         let keys = event.map { [$0.rawValue] } ?? [scenario.rawValue, "general"]
         return keys.flatMap { key in
