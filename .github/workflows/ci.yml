@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  engine-tests:
+    name: Engine tests (Swift on Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run engine checks
+        run: sh test-engine.sh
+      - name: Offline endurance metrics
+        run: if [ -f Tests/metrics.sh ]; then sh Tests/metrics.sh; fi
+  ios-build:
+    name: iOS build (Xcode, unsigned)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios || true
+      - name: Build for generic iOS device
+        run: |
+          set -o pipefail
+          xcodebuild -project StreamLab.xcodeproj -scheme StreamLab -configuration Debug \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build | tail -40
+      - name: Engine checks with Apple toolchain
+        run: sh test-engine.sh | tail -5
