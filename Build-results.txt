@@ -1,3 +1,5 @@
+StreamLab 6.1 faster viewer fill — commit 9f46d3b, CI run 35: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK).
+
 StreamLab 6.1 viewer count — commit d5e290e, CI run 32: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK).
 
 StreamLab 6.1 — commit a5eea06, CI run 23: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK), no compiler

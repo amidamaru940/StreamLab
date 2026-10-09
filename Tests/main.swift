@@ -533,12 +533,14 @@ let openedAt = opening.now
 var openingSamples: [Int] = []
 for _ in 0..<160 { advance(&opening, seconds: 3); openingSamples.append(opening.viewers) }
 let openingChat = viewerMessages(opening, after: openedAt).count
-check(openingSamples[4] < 150, "Viewers arrive gradually: still few after 15 seconds (\(openingSamples[4]))")
-check(openingSamples[19] < 900, "No sudden jump: under 900 after a minute (\(openingSamples[19]))")
+check(openingSamples[4] > openingStart && openingSamples[4] < 300, "Viewers start arriving right away, but gradually: after 15 seconds \(openingSamples[4])")
+check(openingSamples[19] > 150 && openingSamples[19] < 1200, "After a minute the room is filling but not full yet: \(openingSamples[19])")
+let reachedBand = openingSamples.firstIndex { $0 >= Simulation.viewerBand.lowerBound }.map { $0 * 3 + 3 }
+check(reachedBand.map { $0 <= 300 } == true, "The count reaches 1,500 within five minutes (after \(reachedBand ?? -1) s)")
 check(openingSamples.prefix(20).allSatisfy { $0 >= openingStart }, "Right after Go live the count never dips below where it opened")
 let biggestStep = zip(openingSamples, openingSamples.dropFirst()).map { $1 - $0 }.max() ?? 0
-check(biggestStep <= 60, "The count climbs in small steps (largest step \(biggestStep) in 3 s)")
-// The first two minutes are always within the first half of the 4–7 minute ramp, where it climbs.
+check(biggestStep <= 80, "The count climbs in small steps (largest step \(biggestStep) in 3 s)")
+// The first two minutes are always inside the 2.5–4.5 minute ramp, where it climbs.
 check((10..<40).allSatisfy { openingSamples[$0] >= openingSamples[$0 - 10] - 20 }, "While the room fills up the count mostly grows")
 check(opening.viewersSettled && Simulation.viewerBand.contains(opening.viewers), "After the opening minutes the count is inside 1,500–1,872 (\(opening.viewers))")
 check(openingChat > 0 && opening.presentChatters > 15, "Chat runs while people arrive, and more of them chat once the room is full")
