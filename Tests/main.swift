@@ -176,7 +176,7 @@ _ = byID
 var moments = Simulation(settings: quiet, seed: 9, openingRamp: false)
 advance(&moments, seconds: 5)
 moments.trigger(.win)
-let pendingWin = moments.pending.filter { $0.source == .eventReaction }.count
+let pendingWin = Set(moments.pending.filter { $0.source == .eventReaction }.map(\.id))
 let droppedBefore = moments.metrics.dropped[.staleContext] ?? 0
 moments.trigger(.fail)
 let switchedAt = moments.now
@@ -184,7 +184,11 @@ advance(&moments, seconds: 25)
 let winOnly = Set((ChatContent.events["Win"] ?? []) + (ChatContent.events["Win.quick"] ?? [])).subtracting((ChatContent.events["Fail"] ?? []) + (ChatContent.events["Fail.quick"] ?? []))
 let afterSwitch = moments.messages.filter { $0.source == .eventReaction && $0.postedAt > switchedAt }
 check(!afterSwitch.contains { winOnly.contains($0.text) }, "Reactions to a replaced moment are not shown late")
-check((moments.metrics.dropped[.staleContext] ?? 0) - droppedBefore == pendingWin, "Every queued reaction to the replaced moment is cancelled")
+// Counted by message: unrelated chat can also be cancelled as stale in the same minute (e.g. answers to a
+// topic whose asker left), so the drop counter alone is not an exact measure.
+advance(&moments, seconds: 30)
+check(!pendingWin.isEmpty && !moments.messages.contains { pendingWin.contains($0.id) } && !moments.pending.contains { pendingWin.contains($0.id) }
+      && (moments.metrics.dropped[.staleContext] ?? 0) - droppedBefore >= pendingWin.count, "Every queued reaction to the replaced moment is cancelled")
 var cameraTotal = 0, cameraOK = true
 for seed: UInt64 in 10..<20 {
     var camera = Simulation(settings: quiet, seed: seed, openingRamp: false)
