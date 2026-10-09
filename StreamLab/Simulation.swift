@@ -330,8 +330,8 @@ struct Simulation {
         viewerLevel = 1590 + random.unit() * 200
         if openingRamp {
             // A7: a stream opens with a handful of viewers (never fewer than the people already chatting);
-            // more arrive over the next 4–7 minutes.
-            viewers = 4 + random.index(6); rampFrom = Double(viewers); rampDuration = 240 + random.unit() * 180
+            // more arrive over the next 2.5–4.5 minutes (owner asked for a quicker fill than the first 4–7).
+            viewers = 4 + random.index(6); rampFrom = Double(viewers); rampDuration = 150 + random.unit() * 120
         } else {
             viewers = Int(viewerLevel); rampFrom = viewerLevel; rampDuration = 0; viewersSettled = true
         }
@@ -1289,9 +1289,10 @@ struct Simulation {
         if viewersSettled || elapsed >= rampDuration {
             target = min(Double(high - 3), max(Double(low + 3), viewerLevel + viewerDrift + viewerBump))
         } else {
-            // People trickle in: a slow start, a steady climb, then it levels off.
+            // People start arriving right away, the climb is steady, then it levels off
+            // (half S-curve, half ease-out, so the first minute is not almost empty).
             let p = min(1, elapsed / max(1, rampDuration))
-            let eased = p * p * (3 - 2 * p)
+            let eased = 0.5 * (p * p * (3 - 2 * p)) + 0.5 * (1 - (1 - p) * (1 - p))
             target = min(Double(high), max(0, rampFrom + (viewerLevel - rampFrom) * eased + viewerDrift * eased + viewerBump))
             jitter = 2 * max(0.15, eased)
         }
