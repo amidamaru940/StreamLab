@@ -51,7 +51,7 @@ check(sim.elapsed == invalidClock, "Invalid time values are ignored")
 // MARK: Gift banners and queue
 var queue = Simulation(settings: quiet, seed: 6)
 queue.donate(); let first = queue.donation!.id; let duration = queue.donation!.displayDuration
-check(duration >= 7 && duration <= 11, "Default notifications are longer than v4")
+check(duration >= 7 && duration <= 11.5, "Default notifications are longer than v4")
 queue.donate(); let second = queue.donationQueue[0].id
 advance(&queue, seconds: 6)
 check(queue.donation?.id == first, "Tip remains visible after six seconds")

@@ -87,6 +87,14 @@ enum Scenario: String, CaseIterable, Codable, Identifiable {
         }
     }
 }
+/// A7: how big the room is. Viewers, active chatters and chat speed follow from it.
+enum AudienceSize: String, CaseIterable, Codable, Identifiable {
+    case small = "Small room", medium = "Medium", large = "Large"
+    var id: String { rawValue }
+    /// Median starting viewers and the spread around it.
+    var startMedian: Double { self == .small ? 110 : self == .medium ? 700 : 4200 }
+    var activityScale: Double { self == .small ? 0.55 : self == .medium ? 1 : 1.25 }
+}
 struct Settings: Codable {
     var schemaVersion = 6
     var messagesPerMinute: Double = 24
@@ -98,12 +106,14 @@ struct Settings: Codable {
     var cameraReactions = true
     var localWriting = true
     var pauseModelInLowPower = true
+    var giftHaptics = false
+    var audienceSize: AudienceSize = .medium
     var tipDuration: Double = 7
     var channelName = "nightshift"
     var streamTitle = "Just one more minute"
     init() {}
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, messagesPerMinute, donationsPerMinute, minAmount, maxAmount, scenario, autoplay, cameraReactions, localWriting, pauseModelInLowPower, tipDuration, channelName, streamTitle
+        case schemaVersion, messagesPerMinute, donationsPerMinute, minAmount, maxAmount, scenario, autoplay, cameraReactions, localWriting, pauseModelInLowPower, giftHaptics, audienceSize, tipDuration, channelName, streamTitle
     }
     init(from decoder: Decoder) throws {
         self.init()
@@ -119,6 +129,8 @@ struct Settings: Codable {
         cameraReactions = (try? v.decode(Bool.self, forKey: .cameraReactions)) ?? cameraReactions
         localWriting = (try? v.decode(Bool.self, forKey: .localWriting)) ?? localWriting
         pauseModelInLowPower = (try? v.decode(Bool.self, forKey: .pauseModelInLowPower)) ?? pauseModelInLowPower
+        giftHaptics = (try? v.decode(Bool.self, forKey: .giftHaptics)) ?? giftHaptics
+        audienceSize = (try? v.decode(AudienceSize.self, forKey: .audienceSize)) ?? audienceSize
         tipDuration = (try? v.decode(Double.self, forKey: .tipDuration)) ?? tipDuration
         channelName = (try? v.decode(String.self, forKey: .channelName)) ?? channelName
         streamTitle = (try? v.decode(String.self, forKey: .streamTitle)) ?? streamTitle
@@ -187,6 +199,9 @@ struct Donation: Identifiable {
     let color: Int
     let displayDuration: Double
     let returning: Bool
+    /// B5: how prominent the notification is.
+    enum Tier: Int { case small, standard, large, huge }
+    var tier: Tier { amount >= 500 ? .huge : amount >= 201 ? .large : amount >= 50 ? .standard : .small }
 }
 
 /// D2: a stream is prepared, goes live (may pause), and ends with a summary.
@@ -280,8 +295,8 @@ struct Simulation {
         var random = StreamRandom(state: seed)
         audience = Audience(restoring: community, using: &random)
         // A7: the room does not always open at the same size.
-        let start = Int(260 * random.logNormal(sigma: 0.55)) + 180
-        viewers = min(4000, start); audienceTarget = viewers
+        let start = Int(self.settings.audienceSize.startMedian * random.logNormal(sigma: 0.5))
+        viewers = min(11000, max(25, start)); audienceTarget = viewers
         self.random = random
         audience.seat(chatterTarget, now: 0, using: &self.random)
         scheduleDonation()
@@ -367,8 +382,8 @@ struct Simulation {
         cameraContextActive = fromCamera
         context = event; contextClock = 0
         switch event {
-        case .win: audienceTarget += 20 + random.index(50)
-        case .breakTime: audienceTarget = max(150, audienceTarget - 45); breakActive = true
+        case .win: audienceTarget += max(2, audienceTarget / 40) + random.index(max(3, audienceTarget / 25))
+        case .breakTime: audienceTarget = max(15, audienceTarget - max(3, audienceTarget / 25)); breakActive = true
         case .returnLive: breakActive = false
         default: break
         }
@@ -479,7 +494,8 @@ struct Simulation {
                 }
             }
         }
-        let duration = max(settings.tipDuration, min(10, 4 + Double(note.count) * 0.035)) + (amount >= 500 ? 1 : 0)
+        // B5: bigger gifts stay a little longer.
+        let duration = max(settings.tipDuration, min(10, 4 + Double(note.count) * 0.035)) + (amount >= 500 ? 1.5 : amount >= 201 ? 0.75 : 0)
         let gift = Donation(participantID: donorID, name: donor.name, amount: amount, message: note, avatar: donor.avatar, color: donor.color, displayDuration: duration, returning: returning)
         total += amount; donationCount += 1
         let time = now
@@ -588,7 +604,7 @@ struct Simulation {
     // MARK: Director (ambient conversation)
 
     private mutating func direct(_ dt: Double) {
-        let activity = min(1.3, max(0.55, (Double(audience.presentCount) / 22).squareRoot()))
+        let activity = min(1.3, max(0.45, (Double(audience.presentCount) / 22).squareRoot())) * settings.audienceSize.activityScale
         let breakFactor = breakActive ? 0.45 : 1
         let studyFactor = activeScenario == .study ? 0.7 : 1
         contentClock += dt
@@ -987,7 +1003,7 @@ struct Simulation {
     // MARK: Audience dynamics
 
     private mutating func updateViewers() {
-        audienceTarget = min(12000, max(120, audienceTarget + Int((random.gaussian() * 4).rounded()) + (breakActive ? -2 : 0)))
+        audienceTarget = min(12000, max(15, audienceTarget + Int((random.gaussian() * 4).rounded()) + (breakActive ? -2 : 0)))
         viewers = max(1, viewers + (audienceTarget - viewers) / 12 + random.index(7) - 3)
         if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }

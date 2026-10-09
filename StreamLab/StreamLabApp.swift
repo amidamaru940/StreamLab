@@ -193,6 +193,11 @@ struct LiveView: View {
             guard cameraEnabled, camera.status == .live, scenePhase == .active else { return }
             store.engine.observeScene(scene)
         }
+        .onChange(of: store.engine.donation?.id) { _, id in
+            guard id != nil, store.engine.settings.giftHaptics, let tier = store.engine.donation?.tier else { return }
+            let generator = UIImpactFeedbackGenerator(style: tier == .huge ? .heavy : tier == .large ? .medium : .light)
+            generator.impactOccurred()
+        }
         .onDisappear { camera.stop(); store.stopWriting() }
     }
     private var header: some View {
@@ -454,7 +459,22 @@ struct LiveView: View {
 private struct DonationBanner: View {
     let donation: Donation
     let progress: Double
-    private var highlight: Color { donation.amount >= 500 ? .yellow : accent }
+    private var highlight: Color {
+        switch donation.tier {
+        case .huge: return .yellow
+        case .large: return .orange
+        case .standard: return accent
+        case .small: return .teal
+        }
+    }
+    private var label: String {
+        switch donation.tier {
+        case .huge: return "BIG SUPPORT"
+        case .large: return "SUPER TIP"
+        case .standard: return donation.returning ? "TIPPED AGAIN" : "JUST TIPPED"
+        case .small: return donation.returning ? "TIPPED AGAIN" : "TIP"
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -462,7 +482,7 @@ private struct DonationBanner: View {
                     .frame(width: 34, height: 34).background(avatarColors[donation.color].opacity(0.3), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(donation.name).font(.subheadline.bold()).lineLimit(1)
-                    Text(donation.amount >= 500 ? "BIG SUPPORT" : "JUST TIPPED")
+                    Text(label)
                         .font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(highlight)
                 }
                 Spacer(minLength: 5)
@@ -499,6 +519,8 @@ struct SettingsView: View {
                     Text("Optional scripted moments run every 50 seconds. Leave this off when following your real camera.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Audience") {
+                    Picker("Room size", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.rawValue).tag($0) } }
+                    Text("Applies to the next stream. A small room has fewer viewers and a calmer chat; a large one is busier.").font(.caption).foregroundStyle(.secondary)
                     Text("Chat pace · about \(Int(settings.messagesPerMinute))/min")
                     Slider(value: $settings.messagesPerMinute, in: 2...90, step: 1)
                     Text("Mixed voices are automatic: casual chat, questions, humour, support and occasional disagreement. Recent wording is checked for close repeats.").font(.caption).foregroundStyle(.secondary)
@@ -506,6 +528,7 @@ struct SettingsView: View {
                 Section("Simulated gifts") {
                     Text("Gift pace · about \(settings.donationsPerMinute.formatted(.number.precision(.fractionLength(2))))/min")
                     Slider(value: $settings.donationsPerMinute, in: 0...12, step: 0.05)
+                    Toggle("Vibrate on gifts", isOn: $settings.giftHaptics)
                     Text("Tip notification · \(Int(settings.tipDuration)) seconds")
                     Slider(value: $settings.tipDuration, in: 5...12, step: 1)
                     Text("Minimum · \(USD.format(Int(settings.minAmount)))")
