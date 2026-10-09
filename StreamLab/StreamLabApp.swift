@@ -366,6 +366,9 @@ struct LiveView: View {
                 }
                 Text("MOMENTS").font(.caption.bold()).foregroundStyle(.secondary)
                 Text(store.engine.context.map { "Current cue: \($0.rawValue)" } ?? "Choose a moment for chat to react to.").font(.subheadline).foregroundStyle(.secondary)
+                if store.engine.libraryRateCap < store.engine.settings.messagesPerMinute {
+                    Text(pacingNote).font(.caption).foregroundStyle(.secondary)
+                }
                 if store.engine.contentExhausted { Text("Chat is quieter: the offline library has used most conversations for this scene. On-device AI, when available, keeps adding fresh lines.").font(.caption).foregroundStyle(.secondary) }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(StreamEvent.manualCases) { event in
@@ -398,6 +401,9 @@ struct LiveView: View {
             }.navigationTitle("Creator studio").navigationBarTitleDisplayMode(.inline).tint(accent)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showEvents = false } } }
         }
+    }
+    private var pacingNote: String {
+        "Offline chat is pacing itself at about " + String(Int(store.engine.libraryRateCap.rounded())) + " messages/min so conversations last. Apple Intelligence, when it is writing, lifts this limit."
     }
     private var newMessagesLabel: String {
         if unseen == 1 { return "1 new message" }

@@ -10,10 +10,14 @@ jobs:
     container: swift:6.1-noble
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run engine checks
         run: sh test-engine.sh
-      - name: Offline endurance metrics
-        run: if [ -f Tests/metrics.sh ]; then sh Tests/metrics.sh; fi
+      - name: v5 transcripts for comparison
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          sh Tests/v5/run.sh
   ios-build:
     name: iOS build (Xcode, unsigned)
     runs-on: macos-latest

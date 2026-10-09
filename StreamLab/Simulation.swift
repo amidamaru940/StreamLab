@@ -254,6 +254,12 @@ struct Simulation {
     private var dollarSampler = DollarSampler()
     private var thankedDonations: Set<UUID> = []
     private var lastHostIntent: HostIntent?
+    private var debatesUsed: Set<Int> = []
+    private var templateUsedAt: [String: Double] = [:]
+    private var contentClock = 1000.0
+    private var lastModelDelivery = -10000.0
+    /// E6: when only the offline library is writing, chat paces itself so it lasts instead of running dry.
+    private(set) var libraryRateCap: Double = .infinity
 
     init(settings: Settings = Settings(), seed: UInt64 = UInt64.random(in: 0...UInt64.max), community: [Participant]? = nil) {
         self.settings = settings; self.settings.normalize()
@@ -532,7 +538,7 @@ struct Simulation {
         audience.update(person.id) { $0.lastSpokeAt = time; $0.messages += 1 }
         if message.source == .viewerToHost { audience.update(person.id) { $0.openQuestion = message.text; $0.openQuestionAt = time } }
         metrics.record(message, at: now)
-        if message.writtenByModel { acceptedLocalMessages += 1 }
+        if message.writtenByModel { acceptedLocalMessages += 1; lastModelDelivery = now }
         uniqueMessages += 1
         if Self.isShort(message.text) { recentShort.append(TextMemory.canonical(message.text)); if recentShort.count > 14 { recentShort.removeFirst() } }
     }
@@ -554,7 +560,10 @@ struct Simulation {
         let activity = min(1.3, max(0.55, (Double(audience.presentCount) / 22).squareRoot()))
         let breakFactor = breakActive ? 0.45 : 1
         let studyFactor = activeScenario == .study ? 0.7 : 1
-        budget = min(6, budget + settings.messagesPerMinute / 60 * dt * pace * activity * breakFactor * studyFactor)
+        contentClock += dt
+        if contentClock >= 30 { contentClock = 0; refreshLibraryPacing() }
+        let rate = min(settings.messagesPerMinute, libraryRateCap)
+        budget = min(6, budget + rate / 60 * dt * pace * activity * breakFactor * studyFactor)
         let queuedAmbient = pending.filter { $0.due > now && [.topicOpener, .topicAnswer, .topicFollowUp, .sideReaction, .viewerToHost, .ambientAI].contains($0.source) }.count
         guard budget >= 1, queuedAmbient < 8 else { return }
         activeTopics.removeAll { now - $0.startedAt > 150 }
@@ -564,6 +573,7 @@ struct Simulation {
         options.append((0.1, 2))
         if !aiAmbient.isEmpty { options.append((0.4, 3)) }
         options.append((0.08, 4))
+        options.append((0.14, 5))
         var roll = random.unit() * options.reduce(0) { $0 + $1.0 }
         var choice = options[0].1
         for (w, c) in options { roll -= w; if roll < 0 { choice = c; break } }
@@ -573,9 +583,11 @@ struct Simulation {
         case 1: produced = lateAnswer()
         case 2: produced = viewerToHost()
         case 3: produced = ambientModelLine()
+        case 5: produced = startDebate()
         default: produced = sideReaction()
         }
         if produced == 0 { produced = startTopic() }
+        if produced == 0 { produced = startDebate() }
         if produced == 0 { produced = lateAnswer() + viewerToHost() }
         if produced == 0 {
             if idleSince == nil { idleSince = now }
@@ -705,6 +717,86 @@ struct Simulation {
         let due = now + ReactionTiming.delay(voice: person.voice, kind: .quick, readText: target.text, replyLength: line.count, using: &random)
         schedule(PlannedMessage(participant: reactor, text: line, source: .sideReaction, addressee: .participant(targetID), replyToMessage: target.id, causeTime: now, earliest: now + 1, due: due, expires: due + 15, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
         return 1
+    }
+
+    /// A viewer starts an "X or Y?" poll; answers name the option they picked, the asker may report the tally.
+    private mutating func startDebate() -> Int {
+        let keys = sceneKeys
+        let options = ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }
+        guard let pairIndex = random.pick(options),
+              let openerID = audience.pickSpeaker(now: now, using: &random, weight: { 0.5 + $0.voice.curiosity }) else { return 0 }
+        let pair = ChoiceDebates.pairs[pairIndex]
+        guard let openerText = fill(ChoiceDebates.openers, ["%a": pair.a, "%b": pair.b]) else { return 0 }
+        debatesUsed.insert(pairIndex)
+        let openerDue = now + 0.3 + random.unit() * 2
+        let opener = PlannedMessage(participant: openerID, text: openerText, source: .topicOpener, addressee: nil, replyToMessage: nil, causeTime: now, earliest: now, due: openerDue, expires: openerDue + 30, eventEpoch: nil, topicID: "poll", prompt: "", writerEligible: false)
+        schedule(opener)
+        var produced = 1
+        var used: Set<Int> = [openerID]
+        var votes = [0, 0]
+        var last: (UUID, Double)?
+        let wanted = min(audience.presentCount - 1, random.count(weights: [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]))
+        for _ in 0..<max(0, wanted) {
+            guard let speaker = audience.pickSpeaker(now: now, excluding: used, using: &random), let person = audience[speaker] else { break }
+            used.insert(speaker)
+            var line: String?
+            var vote: Int?
+            if random.chance(0.12) {
+                line = ChoiceDebates.neutral.shuffled(using: &random).first { !recentShort.contains(TextMemory.canonical($0)) }
+            } else {
+                let pickA = random.chance(0.5)
+                line = fill(ChoiceDebates.answers, ["%x": pickA ? pair.a : pair.b, "%y": pickA ? pair.b : pair.a])
+                vote = pickA ? 0 : 1
+            }
+            guard let text = line else { continue }
+            if let vote { votes[vote] += 1 }
+            let due = openerDue + ReactionTiming.delay(voice: person.voice, kind: Self.isShort(text) ? .quick : .reply, readText: openerText, replyLength: text.count, using: &random) + random.unit() * 5
+            let answer = PlannedMessage(participant: speaker, text: text, source: .topicAnswer, addressee: .participant(openerID), replyToMessage: opener.id, causeTime: openerDue, earliest: openerDue + 1.2, due: due, expires: due + 45, eventEpoch: nil, topicID: "poll", prompt: "", writerEligible: false)
+            schedule(answer); produced += 1
+            if last == nil || due > last!.1 { last = (answer.id, due) }
+        }
+        if let last, votes[0] + votes[1] >= 2, random.chance(0.45), let person = audience[openerID] {
+            let winner = votes[0] == votes[1] ? nil : (votes[0] > votes[1] ? pair.a : pair.b)
+            let loser = votes[0] > votes[1] ? pair.b : pair.a
+            let pool = winner == nil ? ["split chat, love it"] : ChoiceDebates.tallies.filter { $0 != "split chat, love it" }
+            if let text = fill(pool, ["%w": winner ?? "", "%l": loser]) {
+                let due = last.1 + ReactionTiming.delay(voice: person.voice, kind: .reply, readText: "", replyLength: text.count, using: &random)
+                schedule(PlannedMessage(participant: openerID, text: text, source: .topicFollowUp, addressee: nil, replyToMessage: last.0, causeTime: last.1, earliest: last.1 + 2, due: due, expires: due + 40, eventEpoch: nil, topicID: "poll", prompt: "", writerEligible: false))
+                produced += 1
+            }
+        }
+        return produced
+    }
+    /// Fills a template. Short results may recur between people; longer ones are used once, and the same
+    /// template is not reused for four minutes so the structure does not become noticeable.
+    private mutating func fill(_ templates: [String], _ values: [String: String]) -> String? {
+        for template in templates.shuffled(using: &random) {
+            var line = template
+            for (key, value) in values { line = line.replacingOccurrences(of: key, with: value) }
+            if Self.isShort(line) {
+                if recentShort.contains(TextMemory.canonical(line)) { continue }
+                return line
+            }
+            guard now - (templateUsedAt[template] ?? -1000) >= 240, memory.accept(line) else { continue }
+            templateUsedAt[template] = now
+            return line
+        }
+        return nil
+    }
+    private mutating func refreshLibraryPacing() {
+        // With fresh model lines arriving, the library is not the limit.
+        if settings.localWriting && now - lastModelDelivery < 180 { libraryRateCap = .infinity; return }
+        let keys = sceneKeys
+        var remaining = 0
+        for topic in Self.allTopics where topic.scenes.contains(where: keys.contains) {
+            let use = topicUse[topic.id] ?? TopicUse()
+            remaining += max(0, topic.answers.count - use.answersUsed.count) + max(0, topic.openers.count - use.openersUsed.count)
+        }
+        remaining += ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }.count * 3
+        remaining += aiAmbient.count
+        // Plan for at least a 70-minute session, and always keep 15 minutes in hand.
+        let minutesLeft = max(15, (4200 - now) / 60)
+        libraryRateCap = max(3, Double(remaining) / minutesLeft / 0.7)
     }
 
     // MARK: Host replies

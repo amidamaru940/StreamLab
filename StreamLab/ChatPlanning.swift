@@ -216,3 +216,51 @@ struct WritingResult {
         return WritingResult(slotTexts: texts, ambient: ambient)
     }
 }
+
+/// Viewer-started "X or Y?" polls (E6). Answers are composed from the two options, so they always
+/// refer to what was asked; tallies in the asker's follow-up reflect the answers actually planned.
+enum ChoiceDebates {
+    struct Pair { let a: String; let b: String; let scenes: [String] }
+    static let pairs: [Pair] = [
+        Pair(a: "cats", b: "dogs", scenes: ["any"]), Pair(a: "sweet", b: "salty", scenes: ["any"]),
+        Pair(a: "summer", b: "winter", scenes: ["any"]), Pair(a: "morning", b: "night", scenes: ["any"]),
+        Pair(a: "pizza", b: "burgers", scenes: ["any"]), Pair(a: "books", b: "movies", scenes: ["any"]),
+        Pair(a: "beach", b: "mountains", scenes: ["any"]), Pair(a: "sunrise", b: "sunset", scenes: ["any"]),
+        Pair(a: "pancakes", b: "waffles", scenes: ["any"]), Pair(a: "chocolate", b: "vanilla", scenes: ["any"]),
+        Pair(a: "rain", b: "snow", scenes: ["any"]), Pair(a: "city", b: "countryside", scenes: ["any"]),
+        Pair(a: "calling", b: "texting", scenes: ["any"]), Pair(a: "window seat", b: "aisle seat", scenes: ["any"]),
+        Pair(a: "headphones", b: "speakers", scenes: ["any"]), Pair(a: "fries", b: "onion rings", scenes: ["any"]),
+        Pair(a: "cake", b: "pie", scenes: ["any"]), Pair(a: "hoodie", b: "jacket", scenes: ["any"]),
+        Pair(a: "cereal", b: "toast", scenes: ["any"]), Pair(a: "hot coffee", b: "iced coffee", scenes: ["any"]),
+        Pair(a: "bath", b: "shower", scenes: ["any"]), Pair(a: "stairs", b: "elevator", scenes: ["any"]),
+        Pair(a: "sci-fi", b: "fantasy", scenes: ["any"]), Pair(a: "horror", b: "comedy", scenes: ["any"]),
+        Pair(a: "podcasts", b: "music", scenes: ["any"]), Pair(a: "early bird", b: "night owl", scenes: ["any"]),
+        Pair(a: "pineapple on pizza", b: "no pineapple", scenes: ["any"]), Pair(a: "ketchup", b: "mayo", scenes: ["any"]),
+        Pair(a: "paper books", b: "ebooks", scenes: ["any"]), Pair(a: "spring", b: "autumn", scenes: ["any"]),
+        Pair(a: "big breakfast", b: "skip breakfast", scenes: ["any"]), Pair(a: "tacos", b: "burritos", scenes: ["any"]),
+        Pair(a: "soup", b: "salad", scenes: ["any"]), Pair(a: "bike", b: "walk", scenes: ["any"]),
+        Pair(a: "nap", b: "coffee", scenes: ["any"]), Pair(a: "board games", b: "card games", scenes: ["any"]),
+        Pair(a: "controller", b: "keyboard", scenes: ["Late night gaming"]), Pair(a: "story mode", b: "multiplayer", scenes: ["Late night gaming"]),
+        Pair(a: "easy mode", b: "hard mode", scenes: ["Late night gaming", "One more attempt"]), Pair(a: "headset", b: "speakers on", scenes: ["Late night gaming"]),
+        Pair(a: "stealth", b: "loud", scenes: ["Late night gaming"]), Pair(a: "open world", b: "linear", scenes: ["Late night gaming"]),
+        Pair(a: "quick retry", b: "short break", scenes: ["One more attempt"]), Pair(a: "practice mode", b: "full runs", scenes: ["One more attempt"]),
+        Pair(a: "slow and clean", b: "fast and messy", scenes: ["One more attempt", "Music & practice"]),
+        Pair(a: "spicy", b: "mild", scenes: ["Cooking & food"]), Pair(a: "pasta", b: "rice", scenes: ["Cooking & food"]),
+        Pair(a: "cooking", b: "takeout", scenes: ["Cooking & food"]), Pair(a: "garlic", b: "onion", scenes: ["Cooking & food"]),
+        Pair(a: "crispy", b: "soft", scenes: ["Cooking & food"]), Pair(a: "gas stove", b: "electric", scenes: ["Cooking & food"]),
+        Pair(a: "sunny walk", b: "rainy walk", scenes: ["IRL & outdoors"]), Pair(a: "parks", b: "streets", scenes: ["IRL & outdoors"]),
+        Pair(a: "headphones outside", b: "no headphones", scenes: ["IRL & outdoors"]), Pair(a: "map", b: "wander", scenes: ["IRL & outdoors"]),
+        Pair(a: "guitar", b: "piano", scenes: ["Music & practice"]), Pair(a: "metronome", b: "no metronome", scenes: ["Music & practice"]),
+        Pair(a: "learn by ear", b: "sheet music", scenes: ["Music & practice"]), Pair(a: "scales first", b: "songs first", scenes: ["Music & practice"]),
+        Pair(a: "lofi", b: "silence", scenes: ["Focus & study"]), Pair(a: "pen", b: "pencil", scenes: ["Focus & study"]),
+        Pair(a: "paper notes", b: "laptop notes", scenes: ["Focus & study"]), Pair(a: "library", b: "cafe", scenes: ["Focus & study"]),
+        Pair(a: "long sessions", b: "short sprints", scenes: ["Focus & study"]), Pair(a: "desk", b: "couch", scenes: ["Focus & study"])
+    ]
+    static let openers = ["%a or %b?", "%a or %b, go", "chat: %a or %b", "important question: %a or %b", "%a or %b? need to settle something", "quick poll, %a or %b", "ok %a or %b"]
+    /// Short forms may recur between people; longer forms are used once per session.
+    static let answers = ["%x", "%x", "%x obviously", "team %x", "%x tbh", "%x, not even close", "has to be %x", "%x every single time",
+                          "depends on the day but %x", "i used to say %y but %x now", "%x and i'm not explaining", "%x, %y is overrated",
+                          "%x. this isn't a debate", "honestly %x", "%x for me", "always %x", "%x, easy"]
+    static let neutral = ["both", "neither", "both??", "depends tbh", "can't choose"]
+    static let tallies = ["%w winning so far", "ok %w it is", "%w gang showing up", "%l people are quiet tonight", "split chat, love it", "wow chat really likes %w"]
+}

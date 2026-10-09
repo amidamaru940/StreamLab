@@ -345,7 +345,8 @@ for seed: UInt64 in [42, 100, 4242] {
     var authorsPerMinute: [Int: Set<Int>] = [:]
     for second in 0..<3600 {
         for _ in 0..<4 { hour.tick(0.25) }
-        if second % 600 == 0 && second > 0 { var s = hour.settings; s.scenario = Scenario.allCases[(second / 600) % 8]; hour.apply(s) }
+        // Two runs move through scenes every ten minutes; one stays in Auto for the whole hour.
+        if seed != 4242 && second % 600 == 0 && second > 0 { var s = hour.settings; s.scenario = Scenario.allCases[(second / 600) % 8]; hour.apply(s) }
         for m in hour.messages.suffix(8) where !m.isHost && !m.isDonation && seen.insert(m.id).inserted {
             count += 1; lastPost = hour.elapsed
             maxGap = max(maxGap, hour.elapsed - previous); previous = hour.elapsed
