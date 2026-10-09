@@ -1,0 +1,6 @@
+20k amount sample mean USD: 146.2546
+Default long-run interval model tips/hour: 48.57142857142857
+Approx theoretical simulated USD/hour: 7103.794857142857
+Offline-only Auto scene, 60min, seed 42: 186 chat messages, last at 438.0 sec, exhausted=true
+Offline-only Auto scene, 60min, seed 100: 186 chat messages, last at 442.0 sec, exhausted=true
+Offline-only Auto scene, 60min, seed 4242: 186 chat messages, last at 429.75 sec, exhausted=true

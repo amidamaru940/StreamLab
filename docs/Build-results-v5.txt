@@ -1,0 +1,16 @@
+StreamLab 5.0 (5) — 2026-10-08
+Xcode 27.0 / Build version 27A266a
+SDK: iPhoneOS 27.0
+Target: arm64 iPhone, deployment iOS 17.0
+
+Command:
+xcodebuild -project StreamLab.xcodeproj -scheme StreamLab -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+
+Result: exit code 0
+** BUILD SUCCEEDED **
+
+All seven Swift sources also passed swiftc -typecheck with the iPhoneOS SDK, no diagnostics.
+Device signing/installation and physical camera validation were not performed.
+Native Simulator launch was not performed: CoreSimulator service was inaccessible in the restricted environment.
+The build logged simulator service warnings and an expected AppIntents metadata warning (no AppIntents dependency), but no Swift compiler errors.
+The UI uses the standard SwiftUI.State property wrapper through a type alias and PreviewProvider for compatibility without compiler-plugin processes. No sandbox protection was disabled.
