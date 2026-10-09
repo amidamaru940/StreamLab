@@ -79,9 +79,10 @@ check(!TextMemory.valid("first line\nsecond line") && !TextMemory.valid("first\r
 let topics = Simulation.allTopics
 check(Set(topics.map(\.id)).count == topics.count, "Conversation topic identities are unique")
 check(topics.allSatisfy { !$0.openers.isEmpty && !$0.answers.isEmpty }, "Every topic has an opener and at least one answer")
-let allLines = topics.flatMap { $0.openers + $0.answers + $0.followUps } + ChatContent.short.values.flatMap { $0 } + ChatContent.events.values.flatMap { $0 }
-    + ChatContent.hostReplies.values.flatMap { $0 } + ChatContent.viewerToHost.values.flatMap { $0 } + ChatContent.presence.values.flatMap { $0 }
-    + ChatContent.tipNotes.values.flatMap { $0 } + ChatContent.giftReactions.values.flatMap { $0 } + ChatContent.thanksReplies
+var allLines: [String] = ChatContent.thanksReplies
+for topic in topics { allLines += topic.openers; allLines += topic.answers; allLines += topic.followUps }
+let pools: [[String: [String]]] = [ChatContent.short, ChatContent.events, ChatContent.hostReplies, ChatContent.viewerToHost, ChatContent.presence, ChatContent.tipNotes, ChatContent.giftReactions]
+for pool in pools { for lines in pool.values { allLines += lines } }
 let invalid = allLines.filter { !TextMemory.valid($0, maxLength: 140) || $0.contains("$") }
 if !invalid.isEmpty { print("Invalid lines: \(invalid.prefix(5))") }
 check(invalid.isEmpty, "All authored lines are valid single chat lines without amounts")
@@ -362,3 +363,28 @@ for seed: UInt64 in [42, 100, 4242] {
 }
 
 print("Final: \(checks) checks passed")
+
+// MARK: Sample transcripts for human review (F1). Printed, not asserted.
+func transcript(_ title: String, seed: UInt64, scenario: Scenario = .automatic, script: [(Double, (inout Simulation) -> Void)], seconds: Double) {
+    var settings = quiet; settings.scenario = scenario
+    var s = Simulation(settings: settings, seed: seed)
+    let start = s.now
+    var shown = Set(s.messages.map(\.id))
+    var actions = script.sorted { $0.0 < $1.0 }
+    print("\n=== \(title) ===")
+    var t = 0.0
+    while t < seconds {
+        while let next = actions.first, next.0 <= t { actions.removeFirst(); next.1(&s) }
+        s.tick(0.25); t += 0.25
+        for m in s.messages where shown.insert(m.id).inserted {
+            let who = m.isHost ? "[HOST] \(m.name)" : m.name
+            let reply = m.replyTo.map { " ↳\($0)" } ?? ""
+            print(String(format: "%6.1f  ", m.postedAt - start) + who + reply + ": " + m.text)
+        }
+    }
+}
+transcript("Host asks a choice question", seed: 501, script: [(20, { $0.send("Tea or coffee?") })], seconds: 75)
+transcript("Host asks an open question, then a viewer question", seed: 502, script: [(10, { $0.send("What should I make for dinner tonight?") }), (60, { $0.send("hi chat, how are you all doing?") })], seconds: 110)
+transcript("Manual Win, then Fail", seed: 503, scenario: .gaming, script: [(15, { $0.trigger(.win) }), (50, { $0.trigger(.fail) })], seconds: 90)
+transcript("Tip, then thanks", seed: 504, script: [(10, { _ = $0.donate() }), (18, { _ = $0.thankLatestDonor() })], seconds: 60)
+transcript("Quiet study scene, BRB and back", seed: 505, scenario: .study, script: [(30, { $0.trigger(.breakTime) }), (75, { $0.trigger(.returnLive) })], seconds: 120)
