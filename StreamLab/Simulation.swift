@@ -248,6 +248,7 @@ struct Simulation {
     private var memory = TextMemory(), tipMemory = TextMemory()
     private var recentShort: [String] = []
     private var visibleIDs: [UUID] = []
+    private var visibleAt: [UUID: Double] = [:]
     private var aiAmbient: [String] = [], aiTips: [String] = []
     private var aiScene: Scenario?
     private var dollarSampler = DollarSampler()
@@ -500,8 +501,8 @@ struct Simulation {
             if let reason = dropReason(message) {
                 pending.remove(at: index); metrics.drop(message, reason); continue
             }
-            if let parent = message.replyToMessage, !isVisible(parent) {
-                // The cause is not on screen yet: wait for it rather than answering into the void.
+            if let parent = message.replyToMessage, !isVisible(parent) || now - (visibleAt[parent] ?? now) < (Self.isShort(message.text) ? 1.2 : 2) {
+                // The cause is not on screen yet, or only just appeared: nobody can have read it yet.
                 pending[index].due = now + 0.8 + random.unit() * 1.5
                 index += 1; continue
             }
@@ -535,11 +536,11 @@ struct Simulation {
         uniqueMessages += 1
         if Self.isShort(message.text) { recentShort.append(TextMemory.canonical(message.text)); if recentShort.count > 14 { recentShort.removeFirst() } }
     }
-    private func isVisible(_ id: UUID) -> Bool { visibleIDs.contains(id) }
+    private func isVisible(_ id: UUID) -> Bool { visibleAt[id] != nil }
     private mutating func append(_ message: ChatMessage) {
         messages.append(message)
-        visibleIDs.append(message.id)
-        if visibleIDs.count > 400 { visibleIDs.removeFirst(visibleIDs.count - 400) }
+        visibleIDs.append(message.id); visibleAt[message.id] = now
+        if visibleIDs.count > 400 { for old in visibleIDs.prefix(visibleIDs.count - 400) { visibleAt[old] = nil }; visibleIDs.removeFirst(visibleIDs.count - 400) }
         if messages.count > 160 { messages.removeFirst(messages.count - 160) }
     }
     private mutating func schedule(_ message: PlannedMessage) {
@@ -964,7 +965,8 @@ struct DollarSampler {
         for (range, weight) in bands {
             let lo = max(low, range.lowerBound), hi = min(high, range.upperBound)
             guard lo <= hi else { continue }
-            let available = (lo...hi).filter { !recent.contains($0) }
+            // B4: round amounts ($100, $150, $200...) may recur; odd amounts are not repeated within ten tips.
+            let available = (lo...hi).filter { $0 % 50 == 0 || !recent.contains($0) }
             if !available.isEmpty { choices.append((available, weight)) }
         }
         let value: Int

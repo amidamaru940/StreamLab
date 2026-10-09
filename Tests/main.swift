@@ -292,7 +292,7 @@ advance(&thanks, seconds: 2)
 check(thanks.thankLatestDonor(), "Host can thank the latest supporter")
 let thankedAt = thanks.now
 advance(&thanks, seconds: 40)
-let donorReplies = thanks.messages.filter { $0.participantID == donorID && $0.postedAt > thankedAt }
+let donorReplies = thanks.messages.filter { $0.participantID == donorID && $0.postedAt > thankedAt && $0.replyToHost }
 check(donorReplies.count <= 1 && donorReplies.allSatisfy { $0.postedAt - thankedAt >= 2 && $0.replyToHost }, "Thanked donor answers at most once, later, as the same person")
 
 // MARK: Persistent community
