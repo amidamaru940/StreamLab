@@ -656,7 +656,7 @@ struct Simulation {
         let candidates = Self.allTopics.filter { topic in
             guard topic.scenes.contains(where: keys.contains) else { return false }
             let use = topicUse[topic.id] ?? TopicUse()
-            return now - use.lastStarted > 1200 && use.openersUsed.count < topic.openers.count && topic.answers.count - use.answersUsed.count >= 1
+            return now - use.lastStarted > Self.topicCooldown && use.openersUsed.count < topic.openers.count && topic.answers.count - use.answersUsed.count >= 1
                 && !activeTopics.contains { $0.topicID == topic.id }
         }
         guard !candidates.isEmpty else { return 0 }
@@ -841,17 +841,22 @@ struct Simulation {
         // With fresh model lines arriving, the library is not the limit.
         if settings.localWriting && now - lastModelDelivery < 180 { libraryRateCap = .infinity; return }
         let keys = sceneKeys
-        var remaining = 0
-        for topic in Self.allTopics where topic.scenes.contains(where: keys.contains) {
-            let use = topicUse[topic.id] ?? TopicUse()
-            remaining += max(0, topic.answers.count - use.answersUsed.count) + max(0, topic.openers.count - use.openersUsed.count)
-        }
         // Plan for at least a 70-minute session, and always keep 15 minutes in hand.
         let minutesLeft = max(15, (4200 - now) / 60)
+        // Count what can really be used: a topic restarts at most once per cooldown, with a few answers each time.
+        let startsPossible = Int((minutesLeft * 60 / Self.topicCooldown).rounded(.up))
+        var remaining = 0.0
+        for topic in Self.allTopics where topic.scenes.contains(where: keys.contains) {
+            let use = topicUse[topic.id] ?? TopicUse()
+            let openersLeft = topic.openers.count - use.openersUsed.count, answersLeft = topic.answers.count - use.answersUsed.count
+            guard openersLeft > 0, answersLeft > 0 else { continue }
+            let starts = min(openersLeft, startsPossible)
+            remaining += Double(starts) * (1 + min(3.2, Double(answersLeft) / Double(starts)))
+        }
         let polls = ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }.count
-        remaining += min(polls, Int(minutesLeft / 4)) * 3
-        remaining += aiAmbient.count
-        libraryRateCap = max(3, Double(remaining) / minutesLeft / 0.7)
+        remaining += Double(min(polls, Int(minutesLeft / 4))) * 3.5
+        remaining += Double(aiAmbient.count)
+        libraryRateCap = max(3, remaining / minutesLeft / 0.8)
     }
 
     // MARK: Host replies
@@ -1017,8 +1022,9 @@ struct Simulation {
     }
     private mutating func updatePresence() {
         let changes = audience.balance(target: chatterTarget, now: now, using: &random)
-        for id in changes.joined where random.chance(0.22) {
-            planPresence(id, key: "join")
+        for id in changes.joined {
+            let roll = random.unit()
+            if roll < 0.18 { planPresence(id, key: "join") } else if roll < 0.25 { planPresence(id, key: "lurk") }
         }
         for id in changes.left where random.chance(0.12) {
             planPresence(id, key: "leave", immediate: true)
@@ -1102,6 +1108,8 @@ struct Simulation {
         return value
     }
     private func mentionsMoney(_ text: String) -> Bool { text.contains("$") || text.lowercased().contains("usd") }
+    /// A topic can come up again later with different wording and different people.
+    static let topicCooldown = 900.0
     static func isShort(_ text: String) -> Bool { text.count <= 16 && text.split(separator: " ").count <= 3 }
 
     static let allTopics: [ChatTopic] = ChatContent.topics + ConversationLibrary.legacyTopics
