@@ -126,12 +126,15 @@ let hostQuestions = ["What should I eat tonight?", "Do you like rainy days?", "S
     "What are you working on today?", "Can you see the screen fine?", "Anyone else tired?", "What should I name my plant?", "Early bird or night owl?"]
 // Delay distribution across many questions (hypotheses, measured not asserted as targets).
 var delays: [Double] = []
+var duplicateReplies = 0
 var unanswered = 0
 for seed in 0..<40 {
     var s = Simulation(settings: quiet, seed: UInt64(5000 + seed))
     advance(&s, seconds: 5)
     s.send(hostQuestions[seed]); let at = s.now
     advance(&s, seconds: 60)
+    let replyTexts = s.messages.filter { $0.source == .hostReply && $0.postedAt > at }.map { TextMemory.canonical($0.text) }
+    if Set(replyTexts).count != replyTexts.count { duplicateReplies += 1 }
     let r = s.messages.filter { $0.source == .hostReply && $0.postedAt > at }.map { $0.postedAt - at }
     if r.isEmpty { unanswered += 1 }
     delays += r
@@ -141,6 +144,7 @@ let medianDelay = sortedDelays[sortedDelays.count / 2], fastest = sortedDelays.f
 print(String(format: "Host reply delays, 40 different questions: n=%d fastest %.1fs median %.1fs p90 %.1fs; unanswered %d", delays.count, fastest, medianDelay, p90, unanswered))
 check(fastest >= 1.3 && medianDelay >= 3 && medianDelay <= 16, "Typical replies arrive after a human-like pause")
 check(unanswered <= 10, "Most questions get some answer, a few do not")
+check(duplicateReplies == 0, "Two people never answer the same question with the same words")
 
 // MARK: Viewer topics keep authors and addressees
 var topicSim = Simulation(settings: quiet, seed: 77)

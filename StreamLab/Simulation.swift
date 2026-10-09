@@ -857,7 +857,7 @@ struct Simulation {
             var line: String?
             var vote: Int?
             if !complementary && random.chance(0.12) {
-                line = ChoiceDebates.neutral.shuffled(using: &random).first { !recentShort.contains(TextMemory.canonical($0)) }
+                line = ChoiceDebates.neutral.shuffled(using: &random).first { shortFree($0) }
             } else {
                 let pickA = random.chance(0.5)
                 line = fill(ChoiceDebates.answers, ["%x": pickA ? pair.a : pair.b, "%y": pickA ? pair.b : pair.a])
@@ -890,7 +890,7 @@ struct Simulation {
             var line = template
             for (key, value) in values { line = line.replacingOccurrences(of: key, with: value) }
             if Self.isShort(line) {
-                if recentShort.contains(TextMemory.canonical(line)) { continue }
+                if !shortFree(line) { continue }
                 return line
             }
             guard now - (templateUsedAt[template] ?? -1000) >= 240, memory.accept(line) else { continue }
@@ -1050,7 +1050,7 @@ struct Simulation {
         guard intent.kind == .thanks, let donorID = lastDonorID, let donor = audience[donorID], donor.present else { return }
         let forDonor = mentioned.contains(donorID) || (mentioned.isEmpty && now - lastDonationAt < 90)
         guard forDonor, random.chance(0.85),
-              let line = ChatContent.thanksReplies.shuffled(using: &random).first(where: { Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0) }) else { return }
+              let line = ChatContent.thanksReplies.shuffled(using: &random).first(where: { Self.isShort($0) ? shortFree($0) : memory.allows($0) }) else { return }
         if !Self.isShort(line) { memory.accept(line) }
         let due = now + ReactionTiming.delay(voice: donor.voice, kind: .reply, readText: host.text, replyLength: line.count, using: &random)
         pending.removeAll { $0.participant == donorID && $0.replyToMessage == host.id }
@@ -1078,14 +1078,14 @@ struct Simulation {
         if ["tonight", "today", "now", "later", "night", "morning"].contains(where: option.contains) { templates.removeAll { $0.contains("tonight") } }
         for template in templates.shuffled(using: &random) {
             let line = template.replacingOccurrences(of: "%@", with: option)
-            if Self.isShort(line) ? !recentShort.contains(TextMemory.canonical(line)) : memory.accept(line) { return line }
+            if Self.isShort(line) ? shortFree(line) : memory.accept(line) { return line }
         }
         return nil
     }
     private mutating func hostLine(_ key: String) -> String? {
         let lines = (ChatContent.hostReplies[key] ?? []).shuffled(using: &random)
         for line in lines {
-            if Self.isShort(line) { if !recentShort.contains(TextMemory.canonical(line)) { return line } }
+            if Self.isShort(line) { if shortFree(line) { return line } }
             else if memory.accept(line) { return line }
         }
         return nil
@@ -1164,7 +1164,7 @@ struct Simulation {
         }
     }
     private mutating func planPresence(_ id: Int, key: String, immediate: Bool = false) {
-        guard let person = audience[id], let line = (ChatContent.presence[key] ?? []).shuffled(using: &random).first(where: { Self.fits($0, person) && (Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0)) }) else { return }
+        guard let person = audience[id], let line = (ChatContent.presence[key] ?? []).shuffled(using: &random).first(where: { Self.fits($0, person) && (Self.isShort($0) ? shortFree($0) : memory.allows($0)) }) else { return }
         if !Self.isShort(line) { memory.accept(line) }
         let due = now + (immediate ? 0.1 : 2 + random.unit() * 8)
         schedule(PlannedMessage(participant: person.id, text: line, source: .presence, addressee: nil, replyToMessage: nil, causeTime: now, earliest: now, due: due, expires: due + 20, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
@@ -1191,7 +1191,7 @@ struct Simulation {
         var used: Set<Int> = [gift.participantID]
         for order in 0..<reactions {
             guard let id = pickFree(excluding: used), let person = audience[id],
-                  let line = (ChatContent.giftReactions[large ? "large" : "small"] ?? []).shuffled(using: &random).first(where: { Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0) }) else { continue }
+                  let line = (ChatContent.giftReactions[large ? "large" : "small"] ?? []).shuffled(using: &random).first(where: { Self.isShort($0) ? shortFree($0) : memory.allows($0) }) else { continue }
             used.insert(id)
             if !Self.isShort(line) { memory.accept(line) }
             let due = now + 1.5 + Double(order) * random.unit() * 2 + ReactionTiming.delay(voice: person.voice, kind: .quick, readText: gift.message, replyLength: line.count, using: &random)
@@ -1249,10 +1249,16 @@ struct Simulation {
         if lower.contains("lurk") && person.messages > 2 { return false }
         return true
     }
+    /// A short line may recur between people, but not twice in a row: not if it was just shown,
+    /// and not if someone else is already about to post the same words.
+    private func shortFree(_ line: String) -> Bool {
+        let key = TextMemory.canonical(line)
+        return !recentShort.contains(key) && !pending.contains { TextMemory.canonical($0.text) == key }
+    }
     /// Picks from a pool of reactions: short ones may recur between people, longer ones only once per session.
     private mutating func reusable(_ pool: [String]) -> String? {
         for line in pool.shuffled(using: &random) {
-            if Self.isShort(line) { if !recentShort.contains(TextMemory.canonical(line)) { return line } }
+            if Self.isShort(line) { if shortFree(line) { return line } }
             else if memory.accept(line) { return line }
         }
         return nil
