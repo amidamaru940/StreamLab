@@ -295,6 +295,7 @@ struct Simulation {
     private var lastHostIntent: HostIntent?
     private var debatesUsed: Set<Int> = []
     private var nextPollAllowed = 0.0, nextHostQuestionAllowed = 0.0
+    private var lastDeliveryAt = 0.0, quietLimit = 25.0
     private var templateUsedAt: [String: Double] = [:]
     private var contentClock = 1000.0
     private var lastModelDelivery = -10000.0
@@ -632,6 +633,7 @@ struct Simulation {
         let styled = style(message.text, voice: person.voice, model: message.writtenByModel)
         append(ChatMessage(id: message.id, participantID: person.id, name: person.name, avatar: person.avatar, color: person.color, text: styled, replyTo: replyName, replyToHost: toHost, source: message.source, postedAt: now))
         let time = now
+        lastDeliveryAt = time
         audience.update(person.id) { $0.lastSpokeAt = time; $0.messages += 1 }
         if message.source == .viewerToHost { audience.update(person.id) { $0.openQuestion = message.text; $0.openQuestionAt = time } }
         metrics.record(message, at: now, parentShownAt: message.replyToMessage.flatMap { visibleAt[$0] })
@@ -665,6 +667,11 @@ struct Simulation {
         if contentClock >= 30 { contentClock = 0; refreshLibraryPacing() }
         let rate = min(settings.messagesPerMinute, libraryRateCap)
         budget = min(6, budget + rate / 60 * dt * pace * activity * breakFactor * studyFactor)
+        // A busy room is never silent for long: after a quiet stretch someone says something even if the
+        // pace budget is still recovering from a big conversation.
+        if now - lastDeliveryAt > quietLimit && !pending.contains(where: { $0.due < now + 5 }) {
+            budget = max(budget, 1); quietLimit = 20 + random.unit() * 15
+        }
         let queuedAmbient = pending.filter { $0.due > now && [.topicOpener, .topicAnswer, .topicFollowUp, .sideReaction, .viewerToHost, .ambientAI].contains($0.source) }.count
         guard budget >= 1, queuedAmbient < 8 else { return }
         activeTopics.removeAll { now - $0.startedAt > 75 }
