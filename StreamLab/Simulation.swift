@@ -254,6 +254,7 @@ struct Simulation {
     private(set) var audience: Audience
     private(set) var pending: [PlannedMessage] = []
     private(set) var lastDonorID: Int?
+    private var lastDonationAt = -1000.0
     /// B5: every gift of this session, newest last (bounded).
     private(set) var giftHistory: [Donation] = []
     private(set) var acceptedLocalMessages = 0
@@ -264,7 +265,13 @@ struct Simulation {
     private var random: StreamRandom
     private var donationClock = 0.0, bannerClock = 0.0, bannerGap = 0.0
     private var contextClock = 0.0, scenarioClock = 0.0, viewerClock = 0.0, sceneAge = 0.0, presenceClock = 0.0, paceClock = 0.0
-    private var sceneSince = 0.0
+    private var sceneSince = 0.0, sceneLostAt = -1000.0
+    /// The scene Auto follows; it changes only after steady observation and survives short misses (C2).
+    private var autoScene: VisualScene?
+    private var lastMomentFromCamera = false
+    private var lastCameraEvent: StreamEvent?
+    private var breakStartedAt = -1000.0, lastFaceAwayAt = -1000.0
+    private var baseViewers = 0
     private var sceneCommented: [VisualScene: Double] = [:]
     private var manualOverrideUntil = -1000.0, cameraEventUntil = -1000.0
     private var cameraContextActive = false
@@ -278,7 +285,10 @@ struct Simulation {
     private var recentShort: [String] = []
     private var visibleIDs: [UUID] = []
     private var visibleAt: [UUID: Double] = [:]
-    private var aiAmbient: [String] = [], aiTips: [String] = []
+    /// Fresh model lines with the time they were written; older than three minutes they are stale.
+    private var aiAmbient: [(text: String, at: Double)] = []
+    private var aiTips: [String] = []
+    private var modelDeliveryTimes: [Double] = []
     private var aiScene: Scenario?
     private var dollarSampler = DollarSampler()
     private var thankedDonations: Set<UUID> = []
@@ -297,7 +307,7 @@ struct Simulation {
         audience = Audience(restoring: community, using: &random)
         // A7: the room does not always open at the same size.
         let start = Int(self.settings.audienceSize.startMedian * random.logNormal(sigma: 0.5))
-        viewers = min(11000, max(25, start)); audienceTarget = viewers
+        viewers = min(11000, max(25, start)); audienceTarget = viewers; baseViewers = viewers
         self.random = random
         audience.seat(chatterTarget, now: 0, using: &self.random)
         scheduleDonation()
@@ -311,23 +321,30 @@ struct Simulation {
     var activeScenario: Scenario {
         guard settings.scenario == .automatic else { return settings.scenario }
         // C2: a briefly visible object does not repaint the whole room.
-        if let visualScene, now - sceneSince >= 40 { return visualScene.scenario }
-        return .cozy
+        return autoScene?.scenario ?? .cozy
     }
     var donationProgress: Double { donation.map { max(0, 1 - bannerClock / $0.displayDuration) } ?? 0 }
     var chatterTarget: Int { min(45, max(4, Int(3 + 2 * (Double(viewers) / 8).squareRoot()))) }
     var presentChatters: Int { audience.presentCount }
-    var communitySnapshot: CommunitySnapshot { audience.snapshot }
+    var communitySnapshot: CommunitySnapshot { audience.snapshot(countStream: phase != .ready) }
     var pendingModelSlots: Int { pending.filter { $0.writerRequested && !$0.writtenByModel }.count }
 
-    mutating func togglePause() { guard phase == .live else { return }; running.toggle() }
+    mutating func togglePause() {
+        guard phase == .live else { return }
+        running.toggle()
+        if running { cameraResumed() }
+    }
     mutating func pause() { running = false }
-    mutating func resume() { guard phase == .live else { return }; running = true }
+    mutating func resume() { guard phase == .live else { return }; running = true; cameraResumed() }
+    /// After a pause the camera restarts from scratch: reactions to what it showed before are stale.
+    private mutating func cameraResumed() { if lastMomentFromCamera { endMoment() } }
     /// The room is open but the stream has not started: nothing moves until Go live.
     mutating func prepare() { phase = .ready; running = false }
     mutating func goLive() {
         guard phase == .ready else { return }
         phase = .live; running = true; elapsed = 0; peakViewers = viewers
+        // The warm-up was before the stream: it does not count as anyone's chat history or as stream statistics.
+        audience.resetStreamCounts(); metrics = EngineMetrics(); uniqueMessages = 0
     }
     mutating func end() {
         guard phase == .live else { return }
@@ -351,28 +368,48 @@ struct Simulation {
             for message in stale { metrics.drop(message, .staleContext) }
         }
         if !settings.cameraReactions { clearCameraContext() }
-        if old.streamTitle != settings.streamTitle { aiAmbient = [] }
+        if old.streamTitle != settings.streamTitle || !settings.localWriting { aiAmbient = [] }
         if old.donationsPerMinute != settings.donationsPerMinute { donationClock = 0; scheduleDonation() }
     }
+    /// Camera off, flipped or unavailable: anything still waiting to react to what it showed is cancelled.
     mutating func clearCameraContext() {
-        visualScene = nil
-        if cameraContextActive { endMoment() }
+        visualScene = nil; autoScene = nil
+        if lastMomentFromCamera { endMoment() }
     }
     mutating func observeScene(_ value: VisualScene?) {
         guard running, settings.cameraReactions else { return }
         sceneAge = 0
         guard visualScene != value else { return }
+        let previous = visualScene
         visualScene = value; sceneSince = now
         if let value {
             // Comment on the same kind of thing at most once every five minutes.
-            if now - (sceneCommented[value] ?? -1000) >= 300 { sceneCommented[value] = now; reactToCamera(value.event) }
-        } else if cameraContextActive { endMoment() }
+            if now - (sceneCommented[value] ?? -1000) >= 300, reactToCamera(value.event) { sceneCommented[value] = now }
+        } else {
+            sceneLostAt = now
+            // Only the reaction to the object that left is cancelled, not a smile or movement moment.
+            if lastMomentFromCamera, let previous, context == previous.event { endMoment() }
+        }
     }
-    mutating func reactToCamera(_ event: StreamEvent) {
-        guard settings.cameraReactions, running, now >= manualOverrideUntil, now >= cameraEventUntil else { return }
-        if breakActive && (event == .faceAway || event == .faceBack) { return }
+    /// Returns whether the cue started a moment.
+    @discardableResult mutating func reactToCamera(_ event: StreamEvent) -> Bool {
+        guard settings.cameraReactions, running else { return false }
+        if event == .faceAway { lastFaceAwayAt = now }
+        if breakActive {
+            // While the host is away only their return matters.
+            if event == .faceBack && now - breakStartedAt >= 20 { trigger(.returnLive, fromCamera: true); return true }
+            return false
+        }
+        if event == .faceBack {
+            // A face appearing is only news if the host was seen leaving shortly before.
+            guard now - lastFaceAwayAt < 120 else { return false }
+            // The return always ends a "where did you go" moment, even inside the camera cooldown.
+            if context == .faceAway || (lastMomentFromCamera && lastCameraEvent == .faceAway) { trigger(.faceBack, fromCamera: true); cameraEventUntil = now + 15; return true }
+        }
+        guard now >= manualOverrideUntil, now >= cameraEventUntil else { return false }
         cameraEventUntil = now + 15
         trigger(event, fromCamera: true)
+        return true
     }
 
     /// Marks a moment. Nothing is posted synchronously: viewers notice it, think and type first.
@@ -380,13 +417,15 @@ struct Simulation {
         guard running else { return }
         if !fromCamera { manualOverrideUntil = now + 15 }
         endMoment()
-        cameraContextActive = fromCamera
+        cameraContextActive = fromCamera; lastMomentFromCamera = fromCamera
+        if fromCamera { lastCameraEvent = event }
         context = event; contextClock = 0
         switch event {
         case .win: audienceTarget += max(2, audienceTarget / 40) + random.index(max(3, audienceTarget / 25))
-        case .breakTime: audienceTarget = max(15, audienceTarget - max(3, audienceTarget / 25)); breakActive = true
+        case .breakTime: audienceTarget = max(15, audienceTarget - max(3, audienceTarget / 12)); breakActive = true; breakStartedAt = now
         case .returnLive: breakActive = false
-        default: break
+        // Any other moment the host marks means they are back at the stream.
+        default: if !fromCamera { breakActive = false }
         }
         planEventReactions(event, fromCamera: fromCamera)
         if event == .win && settings.donationsPerMinute > 0 && random.chance(0.3) {
@@ -442,16 +481,22 @@ struct Simulation {
         var accepted = 0
         for slot in request.slots {
             guard let raw = result.slotTexts[slot.id], let index = pending.firstIndex(where: { $0.id == slot.id }) else { continue }
+            if let epoch = pending[index].eventEpoch, epoch != eventEpoch { continue }
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard pending[index].expires > now + 1, line.count <= slot.maxLength, TextMemory.valid(line, maxLength: slot.maxLength), !mentionsMoney(line), memory.accept(line) else { continue }
-            pending[index].text = line; pending[index].writtenByModel = true
+            guard pending[index].expires > now + 1, Self.acceptableModelLine(line, maxLength: slot.maxLength), memory.accept(line),
+                  let person = audience[pending[index].participant] else { continue }
+            // A longer reworded line takes longer to type than the placeholder it replaces.
+            let extraTyping = Double(max(0, line.count - pending[index].text.count)) / person.voice.typingCharactersPerSecond
+            let newDue = pending[index].due + extraTyping
+            guard newDue < pending[index].expires else { continue }
+            pending[index].text = line; pending[index].writtenByModel = true; pending[index].due = newDue
             accepted += 1
         }
-        if request.ambientCount > 0 && aiScene == activeScenario {
+        if request.ambientCount > 0 && aiScene == activeScenario && request.streamTitle == settings.streamTitle {
             var added = 0
             for line in result.ambient.prefix(8) {
                 let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                if TextMemory.valid(value, maxLength: 120), !mentionsMoney(value), memory.allows(value), !aiAmbient.contains(value) { aiAmbient.append(value); added += 1 }
+                if Self.acceptableModelLine(value, maxLength: 120), memory.allows(value), !aiAmbient.contains(where: { $0.text == value }) { aiAmbient.append((value, now)); added += 1 }
             }
             aiAmbient = Array(aiAmbient.suffix(12))
             accepted += added
@@ -477,7 +522,7 @@ struct Simulation {
         if random.unit() >= 0.28 {
             while !aiTips.isEmpty && note.isEmpty {
                 let candidate = aiTips.removeFirst()
-                if tipMemory.accept(candidate) { note = candidate }
+                if Self.noteFits(candidate, donor: donor, amount: amount, returning: returning), tipMemory.accept(candidate) { note = candidate }
             }
             if note.isEmpty {
                 var keys: [String] = []
@@ -487,11 +532,11 @@ struct Simulation {
                 keys += [activeScenario.rawValue, "any"]
                 for key in keys where note.isEmpty {
                     let choices = (ChatContent.tipNotes[key] ?? []).shuffled(using: &random)
-                    if let candidate = choices.first(where: { tipMemory.allows($0) }) { tipMemory.accept(candidate); note = candidate }
+                    if let candidate = choices.first(where: { tipMemory.allows($0) && Self.noteFits($0, donor: donor, amount: amount, returning: returning) }) { tipMemory.accept(candidate); note = candidate }
                 }
                 if note.isEmpty {
                     let fallback = ConversationLibrary.tipLines(event: nil, scenario: activeScenario, large: amount >= 500).shuffled(using: &random)
-                    if let candidate = fallback.first(where: { tipMemory.allows($0) }) { tipMemory.accept(candidate); note = candidate }
+                    if let candidate = fallback.first(where: { tipMemory.allows($0) && Self.noteFits($0, donor: donor, amount: amount, returning: returning) }) { tipMemory.accept(candidate); note = candidate }
                 }
             }
         }
@@ -501,7 +546,7 @@ struct Simulation {
         total += amount; donationCount += 1
         let time = now
         audience.update(donorID) { $0.sessionTips += 1; $0.sessionTipTotal += amount; $0.lastSpokeAt = time; $0.messages += 1 }
-        lastDonorID = donorID
+        lastDonorID = donorID; lastDonationAt = now
         giftHistory.append(gift); if giftHistory.count > 200 { giftHistory.removeFirst(giftHistory.count - 200) }
         if donation == nil && donationQueue.isEmpty && bannerGap <= 0 { display(gift) } else { donationQueue.append(gift) }
         append(ChatMessage(id: UUID(), participantID: donorID, name: donor.name, avatar: donor.avatar, color: donor.color, text: USD.format(amount) + (note.isEmpty ? " tip" : " · " + note), isDonation: true, source: .gift, postedAt: now))
@@ -526,6 +571,8 @@ struct Simulation {
         } else if donation == nil && bannerGap <= 0 && !donationQueue.isEmpty { display(donationQueue.removeFirst()) }
         if context != nil && contextClock >= (cameraContextActive ? 12 : 25) && context != .breakTime { context = nil; cameraContextActive = false }
         if visualScene != nil && sceneAge >= 18 { clearCameraContext() }
+        if let visualScene, visualScene != autoScene, now - sceneSince >= 40 { autoScene = visualScene; aiAmbient = [] }
+        if visualScene == nil, autoScene != nil, now - sceneLostAt >= 30 { autoScene = nil }
         if viewerClock >= 3 { updateViewers(); viewerClock = 0 }
         if paceClock >= 5 {
             // A6: slow waves of busier and quieter chat instead of a metronome.
@@ -587,8 +634,12 @@ struct Simulation {
         let time = now
         audience.update(person.id) { $0.lastSpokeAt = time; $0.messages += 1 }
         if message.source == .viewerToHost { audience.update(person.id) { $0.openQuestion = message.text; $0.openQuestionAt = time } }
-        metrics.record(message, at: now)
-        if message.writtenByModel { acceptedLocalMessages += 1; lastModelDelivery = now }
+        metrics.record(message, at: now, parentShownAt: message.replyToMessage.flatMap { visibleAt[$0] })
+        if message.writtenByModel {
+            acceptedLocalMessages += 1; lastModelDelivery = now
+            let cutoff = now - 180
+            modelDeliveryTimes.append(now); modelDeliveryTimes.removeAll { $0 < cutoff }
+        }
         uniqueMessages += 1
         if Self.isShort(message.text) { recentShort.append(TextMemory.canonical(message.text)); if recentShort.count > 14 { recentShort.removeFirst() } }
     }
@@ -645,7 +696,7 @@ struct Simulation {
             budget = max(0, budget - 0.5)
         } else {
             idleSince = nil; contentExhausted = false
-            budget -= Double(min(produced, 3))
+            budget = max(-4, budget - Double(produced))
         }
     }
 
@@ -671,8 +722,9 @@ struct Simulation {
         for (t, w) in zip(candidates, weights) { roll -= w; if roll < 0 { topic = t; break } }
         var use = topicUse[topic.id] ?? TopicUse()
         let openerIndex = (0..<topic.openers.count).filter { !use.openersUsed.contains($0) && memory.allows(topic.openers[$0]) }
+        // Someone still waiting on answers to their own question does not open another one.
         guard let chosenOpener = random.pick(openerIndex),
-              let openerID = audience.pickSpeaker(now: now, using: &random, weight: { 0.5 + $0.voice.curiosity }) else { return 0 }
+              let openerID = pickFree(excluding: Set(activeTopics.map(\.opener)), weight: { 0.5 + $0.voice.curiosity }) else { return 0 }
         use.openersUsed.insert(chosenOpener); use.lastStarted = now
         let openerText = topic.openers[chosenOpener]
         memory.accept(openerText)
@@ -685,7 +737,7 @@ struct Simulation {
         let wanted = min(room - 1, random.count(weights: room < 8 ? [0.15, 0.4, 0.3, 0.15] : [0.08, 0.22, 0.3, 0.2, 0.12, 0.08]))
         var firstAnswer: (UUID, Double, Int)?
         for _ in 0..<max(0, wanted) {
-            guard let answer = planAnswer(topic: topic, use: &use, active: &active, openerText: openerText, openerDue: openerDue) else { break }
+            guard let answer = planAnswer(topic: topic, use: &use, active: &active, openerText: openerText, openerDue: openerDue, askedAt: openerDue) else { break }
             produced += 1
             if firstAnswer == nil || answer.1 < firstAnswer!.1 { firstAnswer = answer }
         }
@@ -702,22 +754,24 @@ struct Simulation {
     }
 
     /// One viewer answers the opener. Different people answer on their own schedule.
-    private mutating func planAnswer(topic: ChatTopic, use: inout TopicUse, active: inout ActiveTopic, openerText: String, openerDue: Double) -> (UUID, Double, Int)? {
-        guard let speaker = audience.pickSpeaker(now: now, excluding: active.answerers, using: &random), let person = audience[speaker] else { return nil }
+    private mutating func planAnswer(topic: ChatTopic, use: inout TopicUse, active: inout ActiveTopic, openerText: String, openerDue: Double, askedAt: Double) -> (UUID, Double, Int)? {
+        guard let speaker = pickFree(excluding: active.answerers), let person = audience[speaker] else { return nil }
         let available = (0..<topic.answers.count).filter { !use.answersUsed.contains($0) && memory.allows(topic.answers[$0]) }
         guard !available.isEmpty else { return nil }
         let chosen = pickByLength(available.map { topic.answers[$0] }, voice: person.voice)
         guard let lineIndex = available.first(where: { topic.answers[$0] == chosen }) else { return nil }
-        use.answersUsed.insert(lineIndex); memory.accept(chosen)
-        active.answerers.insert(speaker)
         let base = max(openerDue, now)
         let due = base + ReactionTiming.delay(voice: person.voice, kind: .reply, readText: openerText, replyLength: chosen.count, using: &random) + random.unit() * 6
-        // Answers that would arrive more than ~70 s after the question are dropped rather than shown out of context.
-        let answer = PlannedMessage(participant: speaker, text: chosen, source: .topicAnswer, addressee: .participant(active.opener), replyToMessage: active.openerMessage, causeTime: base, earliest: base + 2, due: due, expires: max(due + 5, base + 70), eventEpoch: nil, topicID: topic.id, prompt: openerText, writerEligible: false)
+        // An answer that would land more than ~70 s after the question is simply not written.
+        let deadline = askedAt + 70
+        guard due < deadline else { return nil }
+        use.answersUsed.insert(lineIndex); memory.accept(chosen)
+        active.answerers.insert(speaker)
+        let answer = PlannedMessage(participant: speaker, text: chosen, source: .topicAnswer, addressee: .participant(active.opener), replyToMessage: active.openerMessage, causeTime: base, earliest: base + 2, due: due, expires: deadline, eventEpoch: nil, topicID: topic.id, prompt: openerText, writerEligible: false)
         schedule(answer)
         // Occasionally someone reacts to an answer rather than to the opener.
-        if random.chance(0.14), let reactor = audience.pickSpeaker(now: now, excluding: active.answerers, using: &random), let r = audience[reactor],
-           let quick = shortLine(for: r.personality) {
+        if random.chance(0.14), let reactor = pickFree(excluding: active.answerers), let r = audience[reactor],
+           let quick = sideLine(for: r.personality) {
             let qd = due + ReactionTiming.delay(voice: r.voice, kind: .quick, readText: chosen, replyLength: quick.count, using: &random)
             schedule(PlannedMessage(participant: reactor, text: quick, source: .sideReaction, addressee: .participant(speaker), replyToMessage: answer.id, causeTime: due, earliest: due + 1.2, due: qd, expires: qd + 20, eventEpoch: nil, topicID: topic.id, prompt: "", writerEligible: false))
         }
@@ -730,7 +784,9 @@ struct Simulation {
         var active = activeTopics[i]
         guard isVisible(active.openerMessage), let topic = Self.topicByID[active.topicID], var use = topicUse[topic.id] else { return 0 }
         let openerText = messages.first { $0.id == active.openerMessage }?.text ?? ""
-        let result = planAnswer(topic: topic, use: &use, active: &active, openerText: openerText, openerDue: now)
+        let askedAt = visibleAt[active.openerMessage] ?? now
+        guard now - askedAt < 45 else { return 0 }
+        let result = planAnswer(topic: topic, use: &use, active: &active, openerText: openerText, openerDue: now, askedAt: askedAt)
         topicUse[topic.id] = use; activeTopics[i] = active
         return result == nil ? 0 : 1
     }
@@ -739,8 +795,8 @@ struct Simulation {
         // A few questions for the streamer are natural; a constant stream of them reads like a script.
         guard !breakActive, now >= nextHostQuestionAllowed, !pending.contains(where: { $0.source == .viewerToHost }) else { return 0 }
         let lines = (random.chance(0.45) ? ChatContent.viewerToHost[activeScenario.rawValue] ?? [] : []) + (ChatContent.viewerToHost["any"] ?? [])
-        guard let line = lines.shuffled(using: &random).first(where: { memory.allows($0) }),
-              let speaker = audience.pickSpeaker(now: now, using: &random, weight: { $0.voice.curiosity + 0.1 }) else { return 0 }
+        guard let speaker = pickFree(excluding: Set(activeTopics.map(\.opener)), weight: { $0.voice.curiosity + 0.1 }), let person = audience[speaker],
+              let line = lines.shuffled(using: &random).first(where: { memory.allows($0) && Self.fits($0, person) }) else { return 0 }
         memory.accept(line)
         nextHostQuestionAllowed = now + 45 + random.unit() * 45
         let due = now + 0.5 + random.unit() * 3
@@ -749,9 +805,11 @@ struct Simulation {
     }
 
     private mutating func ambientModelLine() -> Int {
+        let cutoff = now - 180
+        aiAmbient.removeAll { $0.at < cutoff }
         while !aiAmbient.isEmpty {
-            let line = aiAmbient.removeFirst()
-            guard memory.accept(line), let speaker = audience.pickSpeaker(now: now, using: &random) else { continue }
+            let line = aiAmbient.removeFirst().text
+            guard memory.accept(line), let speaker = pickFree() else { continue }
             let due = now + 0.5 + random.unit() * 3
             var message = PlannedMessage(participant: speaker, text: line, source: .ambientAI, addressee: nil, replyToMessage: nil, causeTime: now, earliest: now, due: due, expires: due + 30, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false)
             message.writtenByModel = true
@@ -766,8 +824,8 @@ struct Simulation {
         // Only answers to a chat question get a quick "same"/"lol"/"nah": those are opinions people react to.
         guard let target = messages.suffix(6).last(where: { $0.source == .topicAnswer && $0.participantID != nil && now - $0.postedAt < 20 && !Self.isShort($0.text) }),
               let targetID = target.participantID,
-              let reactor = audience.pickSpeaker(now: now, excluding: [targetID], using: &random), let person = audience[reactor],
-              let line = shortLine(for: person.personality) else { return 0 }
+              let reactor = pickFree(excluding: [targetID]), let person = audience[reactor],
+              let line = sideLine(for: person.personality) else { return 0 }
         let due = now + ReactionTiming.delay(voice: person.voice, kind: .quick, readText: target.text, replyLength: line.count, using: &random)
         schedule(PlannedMessage(participant: reactor, text: line, source: .sideReaction, addressee: .participant(targetID), replyToMessage: target.id, causeTime: now, earliest: now + 1, due: due, expires: due + 15, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
         return 1
@@ -778,8 +836,10 @@ struct Simulation {
         let keys = sceneKeys
         let options = ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }
         guard let pairIndex = random.pick(options),
-              let openerID = audience.pickSpeaker(now: now, using: &random, weight: { 0.5 + $0.voice.curiosity }) else { return 0 }
+              let openerID = pickFree(excluding: Set(activeTopics.map(\.opener)), weight: { 0.5 + $0.voice.curiosity }) else { return 0 }
         let pair = ChoiceDebates.pairs[pairIndex]
+        // "both" or "neither" make no sense for "x or no x".
+        let complementary = pair.a.hasPrefix("no ") || pair.b.hasPrefix("no ")
         guard let openerText = fill(ChoiceDebates.openers, ["%a": pair.a, "%b": pair.b]) else { return 0 }
         debatesUsed.insert(pairIndex)
         nextPollAllowed = now + 180 + random.unit() * 120
@@ -792,11 +852,11 @@ struct Simulation {
         var last: (UUID, Double)?
         let wanted = min(audience.presentCount - 1, random.count(weights: [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]))
         for _ in 0..<max(0, wanted) {
-            guard let speaker = audience.pickSpeaker(now: now, excluding: used, using: &random), let person = audience[speaker] else { break }
+            guard let speaker = pickFree(excluding: used), let person = audience[speaker] else { break }
             used.insert(speaker)
             var line: String?
             var vote: Int?
-            if random.chance(0.12) {
+            if !complementary && random.chance(0.12) {
                 line = ChoiceDebates.neutral.shuffled(using: &random).first { !recentShort.contains(TextMemory.canonical($0)) }
             } else {
                 let pickA = random.chance(0.5)
@@ -804,7 +864,8 @@ struct Simulation {
                 vote = pickA ? 0 : 1
             }
             guard let text = line else { continue }
-            if let vote { votes[vote] += 1 }
+            // Only answers that will really be posted count towards the asker's tally.
+            if let vote, pending.count < 60 { votes[vote] += 1 }
             let due = openerDue + ReactionTiming.delay(voice: person.voice, kind: Self.isShort(text) ? .quick : .reply, readText: openerText, replyLength: text.count, using: &random) + random.unit() * 5
             let answer = PlannedMessage(participant: speaker, text: text, source: .topicAnswer, addressee: .participant(openerID), replyToMessage: opener.id, causeTime: openerDue, earliest: openerDue + 1.2, due: due, expires: due + 45, eventEpoch: nil, topicID: "poll", prompt: "", writerEligible: false)
             schedule(answer); produced += 1
@@ -840,7 +901,10 @@ struct Simulation {
     }
     private mutating func refreshLibraryPacing() {
         // With fresh model lines arriving, the library is not the limit.
-        if settings.localWriting && now - lastModelDelivery < 180 { libraryRateCap = .infinity; return }
+        // Only a model that is steadily producing lines lifts the library's limit.
+        let cutoff = now - 180
+        modelDeliveryTimes.removeAll { $0 < cutoff }
+        if settings.localWriting && modelDeliveryTimes.count >= 4 { libraryRateCap = .infinity; return }
         let keys = sceneKeys
         // Plan for at least a 70-minute session, and always keep 15 minutes in hand.
         let minutesLeft = max(15, (4200 - now) / 60)
@@ -862,15 +926,28 @@ struct Simulation {
 
     // MARK: Host replies
 
+    /// People who already have a message on the way are busy typing it.
+    private var busyIDs: Set<Int> { Set(pending.map(\.participant)) }
+    /// Picks someone present who is not already typing another message (A2: one person, one thought at a time).
+    private mutating func pickFree(excluding: Set<Int> = [], weight: (Participant) -> Double = { _ in 1 }) -> Int? {
+        let busy = busyIDs
+        return audience.pickSpeaker(now: now, excluding: excluding.union(busy), using: &random, weight: weight)
+    }
+
     private mutating func planHostReplies(to host: ChatMessage, intent: HostIntent) {
         let text = host.text
-        var responders: [Int] = []
-        // Someone the host named is the most likely to answer, if they are around and looking.
-        for mention in intent.mentions {
-            if let person = audience.people.first(where: { $0.present && $0.name.lowercased() == mention }), random.chance(0.85) { responders.append(person.id) }
+        // A new question moves the conversation on: replies to older host questions that nobody has
+        // started typing in earnest are dropped instead of trickling in after the host changed subject.
+        if intent.isQuestion {
+            let stale = pending.filter { $0.source == .hostReply && $0.replyToMessage != host.id && $0.due > now + 3 }
+            pending.removeAll { m in stale.contains { $0.id == m.id } }
+            for message in stale { metrics.drop(message, .staleContext) }
         }
+        let mentioned = intent.mentions.compactMap { name in audience.people.first { $0.present && $0.name.lowercased() == name }?.id }
+        var responders: [Int] = []
+        for id in mentioned where random.chance(0.85) { responders.append(id) }
         let room = audience.presentCount
-        let weights: [Double]
+        var weights: [Double]
         switch intent.kind {
         case .greeting: weights = [0.1, 0.3, 0.3, 0.2, 0.1]
         case .howAreYou: weights = [0.05, 0.25, 0.35, 0.25, 0.1]
@@ -878,41 +955,55 @@ struct Simulation {
         case .bye: weights = [0.05, 0.2, 0.3, 0.3, 0.15]
         case .yesNoQuestion, .choice: weights = [0.08, 0.25, 0.3, 0.22, 0.1, 0.05]
         case .openQuestion: weights = [0.12, 0.3, 0.3, 0.18, 0.1]
-        case .statement: weights = [0.45, 0.35, 0.15, 0.05]
-        case .nonEnglish: weights = [0.65, 0.35]
+        case .statement(.filler): weights = [0.8, 0.2]
+        case .statement(.opinion): weights = [0.4, 0.35, 0.18, 0.07]
+        case .statement(.news): weights = [0.55, 0.35, 0.1]
+        case .statement(.welcome): weights = [0.7, 0.3]
+        case .statement(.event): weights = [1]
+        case .nonEnglish: weights = [intent.event == nil ? 0.65 : 1, intent.event == nil ? 0.35 : 0]
         }
+        // A message addressed to someone is mostly left to them.
+        if !mentioned.isEmpty { weights = intent.kind == .thanks ? [1] : [0.8, 0.2] }
         let extra = min(max(0, room - responders.count), random.count(weights: weights))
         for _ in 0..<extra {
-            guard let id = audience.pickSpeaker(now: now, excluding: Set(responders), using: &random, weight: { $0.voice.attention }) else { break }
+            guard let id = pickFree(excluding: Set(responders), weight: { $0.voice.attention }) else { break }
             responders.append(id)
         }
-        // Whoever asked the host something recently may take this as the answer.
-        let askers = audience.people.filter { $0.present && $0.openQuestion != nil && now - $0.openQuestionAt < 75 && !responders.contains($0.id) }
-        let topic = Self.allTopics.first { !$0.hostKeywords.isEmpty && !intent.keywords.isDisjoint(with: $0.hostKeywords) }
-        var leaning: [String: Int] = [:]
+        let topic = matchingTopic(intent)
+        var evasions = 0
+        let laughFiller = ["lol", "lmao", "haha", "hahaha", "lmfao"].contains { intent.body.contains($0) }
         for (order, id) in responders.enumerated() {
             guard let person = audience[id] else { continue }
             var line: String?
             var quick = false
+            let isMentioned = mentioned.contains(id)
             switch intent.kind {
             case .choice(let a, let b):
-                if random.chance(0.75) {
-                    let option = random.chance(0.5) ? a : b
-                    leaning[option, default: 0] += 1
-                    line = choiceLine(option, voice: person.voice)
-                } else { line = hostLine("choice") }
-            case .yesNoQuestion:
-                if let topic, random.chance(0.5) { line = topicAnswer(topic, voice: person.voice) }
-                if line == nil { line = hostLine(["yes", "yes", "no", "unsure", "unsure"][random.index(5)]) }
+                if random.chance(0.8) { line = choiceLine(random.chance(0.5) ? a : b, voice: person.voice) } else { line = hostLine("choice") }
+            case .yesNoQuestion(let form):
+                switch form {
+                case .advice: line = hostLine(["yes", "yes", "no", "unsure", "unsure"][random.index(5)])
+                case .check: line = reusable(["yep", "loud and clear", "hear you fine", "yes", "all good here", "works for me", "yeah we can", "yep all good"]); quick = true
+                case .presence: line = reusable(["me", "here", "present", "o/", "still here", "yep here", "lurking but here", "hi, here"]); quick = true
+                case .general: line = reusable(["yeah", "yep", "yes", "not really", "nah", "sometimes", "kinda", "no lol", "100%", "depends", "honestly yes", "not at all", "a little", "used to", "big yes", "nope", "eh, kind of", "yes and no"]); quick = true
+                }
             case .openQuestion:
                 if let topic { line = topicAnswer(topic, voice: person.voice) }
-                if line == nil { line = hostLine("open") }
+                // Without a fitting answer, one person may admit it; the others just do not reply.
+                if line == nil && evasions == 0 { line = hostLine("open"); evasions += 1 }
             case .greeting: line = hostLine("greeting"); quick = true
             case .howAreYou: line = hostLine("howAreYou")
             case .thanks: line = hostLine("thanks"); quick = true
             case .bye: line = hostLine("bye"); quick = true
-            case .statement:
+            case .statement(.filler):
+                line = laughFiller ? reusable(ChatContent.short["laugh"] ?? []) : reusable(["true", "lol", "fr", "same", "real", "yeah", "mhm"]); quick = true
+            case .statement(.opinion):
                 if random.chance(0.4), let s = shortLine(for: person.personality) { line = s; quick = true } else { line = hostLine("statement") }
+            case .statement(.news):
+                line = reusable(["oh nice", "ooh", "ok ok", "noted", "ah", "fair enough", "nice", "oh cool", "huh", "ahh", "oh?", "ok that's cool"]); quick = true
+            case .statement(.welcome):
+                line = isMentioned ? hostLine("greeting") : reusable(["welcome!", "welcome in", "hi hi", "o/", "hey welcome"]); quick = true
+            case .statement(.event): line = nil
             case .nonEnglish: line = hostLine("nonEnglish")
             }
             guard let chosen = line else { continue }
@@ -923,29 +1014,68 @@ struct Simulation {
             let earliest = now + (kind == .quick ? 1.3 : 2.6)
             due = max(due, earliest)
             let eligible: Bool
-            switch intent.kind { case .openQuestion, .yesNoQuestion, .statement, .howAreYou: eligible = !quick; default: eligible = false }
+            switch intent.kind { case .openQuestion, .statement(.opinion), .howAreYou: eligible = !quick; default: eligible = false }
             schedule(PlannedMessage(participant: id, text: chosen, source: .hostReply, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: earliest, due: due, expires: due + 45, eventEpoch: nil, topicID: nil, prompt: text, writerEligible: eligible))
         }
-        if let asker = askers.first, random.chance(0.45), intent.kind != .nonEnglish,
-           let line = (["ah ok", "got it", "ty", "oh nice", "fair enough", "ahh ok", "makes sense", "cool cool"].filter { !recentShort.contains(TextMemory.canonical($0)) }).randomElement(using: &random) {
-            let due = now + ReactionTiming.delay(voice: asker.voice, kind: .quick, readText: text, replyLength: line.count, using: &random) + 1
-            schedule(PlannedMessage(participant: asker.id, text: line, source: .acknowledgement, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: now + 1.5, due: due, expires: due + 30, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
-            audience.update(asker.id) { $0.openQuestion = nil }
+        planAcknowledgement(to: host, intent: intent, mentioned: mentioned, responders: responders)
+        planDonorThanks(to: host, intent: intent, mentioned: mentioned)
+    }
+
+    /// A viewer who asked the host something says "ah ok" only when this message plausibly answers them:
+    /// it names them, or it is a plain statement right after their question that shares a content word.
+    private mutating func planAcknowledgement(to host: ChatMessage, intent: HostIntent, mentioned: [Int], responders: [Int]) {
+        switch intent.kind {
+        case .statement(.news), .statement(.opinion), .statement(.filler): break
+        default: if mentioned.isEmpty { return }
         }
-        // A donor who was just thanked answers in their own time.
-        if intent.kind == .thanks, let donorID = lastDonorID, let donor = audience[donorID], donor.present,
-           intent.mentions.contains(donor.name.lowercased()) || intent.mentions.isEmpty, random.chance(0.8),
-           let line = ChatContent.thanksReplies.shuffled(using: &random).first(where: { memory.allows($0) || Self.isShort($0) }) {
-            if !Self.isShort(line) { memory.accept(line) }
-            let due = now + ReactionTiming.delay(voice: donor.voice, kind: .reply, readText: text, replyLength: line.count, using: &random)
-            pending.removeAll { $0.participant == donorID && $0.replyToMessage == host.id }
-            schedule(PlannedMessage(participant: donorID, text: line, source: .thanks, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: now + 2, due: due, expires: due + 40, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
-            lastDonorID = nil
+        let askers = audience.people.filter { $0.present && $0.openQuestion != nil && now - $0.openQuestionAt < 75 }
+            .sorted { $0.openQuestionAt > $1.openQuestionAt }
+        let answered = askers.first { person in
+            if mentioned.contains(person.id) { return true }
+            guard mentioned.isEmpty, now - person.openQuestionAt < 40, let question = person.openQuestion else { return false }
+            let words = Set(TextMemory.canonical(question).split(separator: " ").map(String.init)).subtracting(HostIntent.genericWords)
+            return !words.isDisjoint(with: intent.keywords) || intent.keywords.count <= 3
         }
+        guard let asker = answered, random.chance(mentioned.contains(asker.id) ? 0.75 : 0.45),
+              let line = reusable(["ah ok", "got it", "ty", "oh nice", "fair enough", "ahh ok", "makes sense", "cool cool", "oh ok"]) else { return }
+        // A mentioned asker answers with this instead of a generic reply.
+        pending.removeAll { $0.participant == asker.id && $0.replyToMessage == host.id }
+        let due = now + ReactionTiming.delay(voice: asker.voice, kind: .quick, readText: host.text, replyLength: line.count, using: &random) + 1
+        schedule(PlannedMessage(participant: asker.id, text: line, source: .acknowledgement, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: now + 1.5, due: due, expires: due + 30, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
+        audience.update(asker.id) { $0.openQuestion = nil }
+    }
+
+    /// A donor who was just thanked answers in their own time — only if the thanks was for them.
+    private mutating func planDonorThanks(to host: ChatMessage, intent: HostIntent, mentioned: [Int]) {
+        guard intent.kind == .thanks, let donorID = lastDonorID, let donor = audience[donorID], donor.present else { return }
+        let forDonor = mentioned.contains(donorID) || (mentioned.isEmpty && now - lastDonationAt < 90)
+        guard forDonor, random.chance(0.85),
+              let line = ChatContent.thanksReplies.shuffled(using: &random).first(where: { Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0) }) else { return }
+        if !Self.isShort(line) { memory.accept(line) }
+        let due = now + ReactionTiming.delay(voice: donor.voice, kind: .reply, readText: host.text, replyLength: line.count, using: &random)
+        pending.removeAll { $0.participant == donorID && $0.replyToMessage == host.id }
+        schedule(PlannedMessage(participant: donorID, text: line, source: .thanks, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: now + 2, due: due, expires: due + 40, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
+        lastDonorID = nil
+    }
+
+    /// The library topic whose answers fit the host's question: specific word overlap, current scene first.
+    private func matchingTopic(_ intent: HostIntent) -> ChatTopic? {
+        guard case .openQuestion = intent.kind, !intent.keywords.isEmpty else { return nil }
+        let keys = sceneKeys
+        var best: (ChatTopic, Int)?
+        for topic in Self.allTopics where !topic.hostKeywords.isEmpty {
+            let specific = Set(topic.hostKeywords).subtracting(HostIntent.genericWords)
+            let hits = specific.intersection(intent.keywords).count
+            guard hits > 0 else { continue }
+            let score = hits * 10 + (topic.scenes.contains(where: keys.contains) ? 5 : 0)
+            if best == nil || score > best!.1 { best = (topic, score) }
+        }
+        return best?.0
     }
 
     private mutating func choiceLine(_ option: String, voice: Voice) -> String? {
-        let templates = ["%@", "%@", "%@ tbh", "%@ always", "%@ for sure", "team %@", "%@, easy", "%@ obviously", "%@ every time", "%@ tonight", "%@, no contest", "def %@", "%@ please", "i'd say %@"]
+        var templates = ["%@", "%@", "%@ tbh", "%@ always", "%@ for sure", "team %@", "%@, easy", "%@ obviously", "%@ every time", "%@ tonight", "%@, no contest", "def %@", "%@ please", "i'd say %@"]
+        if ["tonight", "today", "now", "later", "night", "morning"].contains(where: option.contains) { templates.removeAll { $0.contains("tonight") } }
         for template in templates.shuffled(using: &random) {
             let line = template.replacingOccurrences(of: "%@", with: option)
             if Self.isShort(line) ? !recentShort.contains(TextMemory.canonical(line)) : memory.accept(line) { return line }
@@ -977,7 +1107,7 @@ struct Simulation {
         let key = event.rawValue
         let room = audience.presentCount
         let count: Int
-        if fromCamera { count = min(room, random.count(weights: [0.3, 0.45, 0.2, 0.05])) }
+        if fromCamera { count = min(room, random.count(weights: [0.3, 0.45, 0.25])) }
         else {
             switch event {
             case .win, .laugh: count = min(room, random.count(weights: [0.02, 0.13, 0.25, 0.25, 0.2, 0.15]))
@@ -988,7 +1118,7 @@ struct Simulation {
         var used: Set<Int> = []
         let quickShare: Double = [.win, .laugh, .fail].contains(event) ? 0.55 : fromCamera ? 0.15 : 0.3
         for order in 0..<count {
-            guard let id = audience.pickSpeaker(now: now, excluding: used, using: &random, weight: { $0.voice.attention }), let person = audience[id] else { break }
+            guard let id = pickFree(excluding: used, weight: { $0.voice.attention }), let person = audience[id] else { break }
             used.insert(id)
             var line: String?
             var quick = random.chance(quickShare)
@@ -1010,14 +1140,16 @@ struct Simulation {
     }
     /// Ends the current moment; reactions still waiting for it are cancelled, other conversation continues.
     private mutating func endMoment() {
-        context = nil; cameraContextActive = false
+        context = nil; cameraContextActive = false; lastMomentFromCamera = false
         eventEpoch += 1
     }
 
     // MARK: Audience dynamics
 
     private mutating func updateViewers() {
-        audienceTarget = min(12000, max(15, audienceTarget + Int((random.gaussian() * 4).rounded()) + (breakActive ? -2 : 0)))
+        // Drifts around the room's usual size instead of wandering off to an extreme.
+        let pull = Double(baseViewers - audienceTarget) * 0.02
+        audienceTarget = min(12000, max(15, audienceTarget + Int((pull + random.gaussian() * Double(max(1, baseViewers)).squareRoot() * 0.12).rounded())))
         viewers = max(1, viewers + (audienceTarget - viewers) / 12 + random.index(7) - 3)
         if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }
@@ -1032,7 +1164,7 @@ struct Simulation {
         }
     }
     private mutating func planPresence(_ id: Int, key: String, immediate: Bool = false) {
-        guard let person = audience[id], let line = (ChatContent.presence[key] ?? []).shuffled(using: &random).first(where: { Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0) }) else { return }
+        guard let person = audience[id], let line = (ChatContent.presence[key] ?? []).shuffled(using: &random).first(where: { Self.fits($0, person) && (Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0)) }) else { return }
         if !Self.isShort(line) { memory.accept(line) }
         let due = now + (immediate ? 0.1 : 2 + random.unit() * 8)
         schedule(PlannedMessage(participant: person.id, text: line, source: .presence, addressee: nil, replyToMessage: nil, causeTime: now, earliest: now, due: due, expires: due + 20, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
@@ -1058,7 +1190,7 @@ struct Simulation {
         let reactions = random.count(weights: large ? [0.05, 0.3, 0.35, 0.3] : [0.45, 0.4, 0.15])
         var used: Set<Int> = [gift.participantID]
         for order in 0..<reactions {
-            guard let id = audience.pickSpeaker(now: now, excluding: used, using: &random), let person = audience[id],
+            guard let id = pickFree(excluding: used), let person = audience[id],
                   let line = (ChatContent.giftReactions[large ? "large" : "small"] ?? []).shuffled(using: &random).first(where: { Self.isShort($0) ? !recentShort.contains(TextMemory.canonical($0)) : memory.allows($0) }) else { continue }
             used.insert(id)
             if !Self.isShort(line) { memory.accept(line) }
@@ -1081,6 +1213,41 @@ struct Simulation {
         }
         let key = keys[random.index(keys.count)]
         return reusable(ChatContent.short[key] ?? [])
+    }
+    /// A donor's note may only claim what is true of them in this app: first tip or not, lurker or not,
+    /// and it may not invent facts about the host or past streams.
+    static func noteFits(_ note: String, donor: Participant, amount: Int, returning: Bool) -> Bool {
+        let lower = note.lowercased()
+        if ["exam", "my question", "answering", "answered", "for once", "birthday"].contains(where: lower.contains) { return false }
+        if returning && ["first", "new here", "finally"].contains(where: lower.contains) { return false }
+        if !returning && ["again", "another", "still tipping", "regular", "as always", "back with"].contains(where: lower.contains) { return false }
+        if lower.contains("lurk") && donor.messages > 1 { return false }
+        if ["week", "weeks", "months", "years", "every stream", "all the hours", "all these streams"].contains(where: lower.contains) && donor.streamsChatted == 0 { return false }
+        if amount > 200 && ["little", "small", "tiny", "bit of"].contains(where: lower.contains) { return false }
+        if amount < 50 && ["big", "huge", "saved up", "had a good month"].contains(where: lower.contains) { return false }
+        return true
+    }
+    /// A quick reaction to another viewer's own answer: agreement, a nod or a laugh. Someone's personal
+    /// fact ("i'm on my phone") is not something to call "wrong", so disagreement is left to opinions.
+    private mutating func sideLine(for personality: Personality) -> String? {
+        let keys: [String]
+        switch personality {
+        case .joker: keys = ["laugh", "agree"]
+        case .skeptic: keys = ["neutral", "agree"]
+        default: keys = ["agree", "neutral", "agree"]
+        }
+        return reusable(ChatContent.short[keys[random.index(keys.count)]] ?? [])
+    }
+    /// Lines that claim a history ("first time here", "back again") must match what this person has really done.
+    static func fits(_ line: String, _ person: Participant) -> Bool {
+        let lower = line.lowercased()
+        let newcomerClaim = ["first time", "new here", "found you", "found this", "just found", "first stream"].contains(where: lower.contains)
+        let veteranClaim = ["again", "as always", "every stream", "every time", "usual", "regular", "back for", "my spot"].contains(where: lower.contains)
+        let hasHistory = person.streamsChatted > 0 || person.pastTips > 0
+        if newcomerClaim && (hasHistory || person.messages > 1) { return false }
+        if veteranClaim && !hasHistory { return false }
+        if lower.contains("lurk") && person.messages > 2 { return false }
+        return true
     }
     /// Picks from a pool of reactions: short ones may recur between people, longer ones only once per session.
     private mutating func reusable(_ pool: [String]) -> String? {
@@ -1109,6 +1276,13 @@ struct Simulation {
         return value
     }
     private func mentionsMoney(_ text: String) -> Bool { text.contains("$") || text.lowercased().contains("usd") }
+    /// Model output is data: it may not address people, tag things, claim money or switch language.
+    static func acceptableModelLine(_ text: String, maxLength: Int) -> Bool {
+        guard text.count <= maxLength, TextMemory.valid(text, maxLength: maxLength), !text.contains("@"), !text.contains("#"),
+              !text.contains("$"), !text.lowercased().contains("usd"), !text.lowercased().contains("dollar") else { return false }
+        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        return letters.isEmpty || Double(letters.filter(\.isASCII).count) / Double(letters.count) >= 0.9
+    }
     /// A topic can come up again later with different wording and different people.
     static let topicCooldown = 900.0
     static func isShort(_ text: String) -> Bool { text.count <= 16 && text.split(separator: " ").count <= 3 }

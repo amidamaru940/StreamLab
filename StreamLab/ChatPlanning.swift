@@ -64,17 +64,24 @@ enum ReactionTiming {
 
 /// Lightweight understanding of what the host typed. Text is data, never an instruction.
 struct HostIntent: Equatable {
+    /// What kind of yes/no question it is decides what a sensible short answer looks like.
+    enum YesNoForm: Equatable { case advice, check, presence, general }
+    /// Statements are not all opinions: most host lines are filler, news or announcements.
+    enum StatementForm: Equatable { case filler, opinion, news, welcome, event }
     enum Kind: Equatable {
         case greeting, howAreYou, thanks, bye
-        case yesNoQuestion, openQuestion
+        case yesNoQuestion(YesNoForm), openQuestion
         case choice(String, String)
-        case statement
+        case statement(StatementForm)
         case nonEnglish
     }
     let kind: Kind
     let mentions: [String]
+    /// Content words for matching a library topic; generic words are excluded.
     let keywords: Set<String>
     let event: StreamEvent?
+    /// The host text without @mentions, lowercased.
+    let body: String
 
     var isQuestion: Bool {
         switch kind {
@@ -83,56 +90,108 @@ struct HostIntent: Equatable {
         }
     }
 
+    static let genericWords: Set<String> = ["favorite", "favourite", "take", "first", "night", "late", "time", "today", "day", "live", "working", "enough", "people", "ready", "opinion", "kind", "warm", "goal", "fun", "free", "phone", "read", "good", "best", "like", "new", "last", "next", "much", "many", "thing", "things", "stuff", "really", "ever", "still", "right", "now", "get", "got", "make", "made", "play", "watch", "use", "you", "your", "what", "how", "why", "who", "where", "when", "which", "is", "are", "do", "does", "did", "the", "a", "an", "and", "or", "to", "of", "in", "on", "at", "for", "with", "it", "this", "that", "i", "me", "my", "we", "us", "our", "chat", "guys", "everyone", "anyone", "all", "should", "would", "could", "can", "will", "be", "have", "has", "was", "were", "am", "so", "just", "about", "think", "know", "want", "need", "tonight", "morning", "evening"]
+    private static let greetWords: Set<String> = ["hi", "hello", "hey", "hiya", "yo", "sup", "heya", "howdy", "evening", "morning", "hii", "heyo"]
+    private static let fillerWords: Set<String> = ["lol", "lmao", "lmfao", "haha", "hahaha", "hah", "nice", "gg", "ok", "okay", "k", "yeah", "yep", "yes", "no", "nope", "wow", "damn", "oof", "rip", "true", "same", "hmm", "hm", "omg", "bruh", "sheesh", "cool", "yay", "ayy", "welp", "huh", "oh", "ah", "lets", "go", "pog"]
+    private static let openers: Set<String> = ["what", "why", "how", "who", "where", "which", "when"]
+    private static let yesNoStarts: Set<String> = ["do", "does", "did", "is", "are", "was", "were", "can", "could", "should", "would", "will", "have", "has", "anyone", "any", "anybody", "shall", "am", "you", "u", "isn't", "aren't", "don't", "didn't", "can't"]
+    private static let leadIns: Set<String> = ["hey", "hi", "hello", "yo", "ok", "okay", "so", "chat", "guys", "everyone", "all", "alright", "quick", "question", "real", "btw", "um", "hmm", "well", "oh", "random", "serious", "y'all", "folks", "friends"]
+
     static func parse(_ raw: String) -> HostIntent {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = text.lowercased().replacingOccurrences(of: "’", with: "'")
-        let words = lower.split { !$0.isLetter && $0 != "'" && $0 != "@" && $0 != "_" && !$0.isNumber }.map(String.init)
-        let mentions = text.split(separator: " ").filter { $0.hasPrefix("@") && $0.count > 1 }
+        let mentions = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).filter { $0.hasPrefix("@") && $0.count > 1 }
             .map { String($0.dropFirst()).trimmingCharacters(in: .punctuationCharacters).lowercased() }
-        let event = detectEvent(lower: lower, words: words)
-        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        // @mentions are addressed people, not part of what is being said.
+        var body = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).filter { !$0.hasPrefix("@") }.joined(separator: " ").lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        for (short, long) in [("what's", "what is"), ("how's", "how is"), ("who's", "who is"), ("where's", "where is"), ("when's", "when is"), ("wanna", "want to")] {
+            body = body.replacingOccurrences(of: short, with: long)
+        }
+        let words = body.split { !$0.isLetter && !$0.isNumber && $0 != "'" }.map(String.init)
+        let letters = body.unicodeScalars.filter { CharacterSet.letters.contains($0) }
         let latin = letters.filter { $0.isASCII }.count
         if letters.count >= 3 && Double(latin) / Double(letters.count) < 0.6 {
-            return HostIntent(kind: .nonEnglish, mentions: mentions, keywords: [], event: event)
+            return HostIntent(kind: .nonEnglish, mentions: mentions, keywords: [], event: detectEvent(body: body, words: words), body: body)
         }
-        let plain = words.filter { !$0.hasPrefix("@") }
-        let keywords = Set(plain)
-        let first = plain.first ?? ""
-        let has = { (list: [String]) in list.contains { keywords.contains($0) } }
-        let question = text.contains("?")
+        let event = detectEvent(body: body, words: words)
+        let keywords = Set(words).subtracting(genericWords)
+        // Skip greetings and lead-ins such as "hey chat," to find how the sentence really starts.
+        let core = Array(words.drop { leadIns.contains($0) || greetWords.contains($0) })
+        let first = core.first ?? ""
+        let second = core.count > 1 ? core[1] : ""
+        let exclamation = (first == "what" && second == "a") || (first == "how" && ["cool", "nice", "funny", "great", "cute", "weird", "fun", "sad"].contains(second))
+        let looksLikeQuestion = !exclamation && (body.contains("?") || openers.contains(first) || yesNoStarts.contains(first))
+        let has = { (list: [String]) in list.contains { words.contains($0) } }
         let kind: Kind
-        if has(["hi", "hello", "hey", "hiya", "yo", "evening", "morning", "sup"]) && plain.count <= 5 && !question { kind = .greeting }
-        else if lower.contains("how are you") || lower.contains("how's everyone") || lower.contains("how is everyone") || lower.contains("how are we") || lower.contains("how's your") || lower.contains("how was your") { kind = .howAreYou }
-        else if has(["thanks", "thank", "ty", "thx"]) { kind = .thanks }
-        else if has(["bye", "goodnight", "night", "ending", "signing"]) && !question { kind = .bye }
-        else if let options = choice(in: lower) { kind = .choice(options.0, options.1) }
-        else if question || ["what", "why", "how", "who", "where", "which", "when"].contains(first) {
-            let yesNoStarts: Set<String> = ["do", "does", "did", "is", "are", "was", "were", "can", "could", "should", "would", "will", "have", "has", "anyone", "any", "shall", "am", "you"]
-            kind = yesNoStarts.contains(first) ? .yesNoQuestion : .openQuestion
-        } else { kind = .statement }
-        return HostIntent(kind: kind, mentions: mentions, keywords: keywords, event: event)
+        if looksLikeQuestion {
+            if isHowAreYou(body) { kind = .howAreYou }
+            else if let options = choice(in: body) { kind = .choice(options.0, options.1) }
+            else if yesNoStarts.contains(first) { kind = .yesNoQuestion(yesNoForm(core: core, body: body)) }
+            else { kind = .openQuestion }
+        }
+        else if has(["thanks", "thank", "ty", "thx", "tysm"]) { kind = .thanks }
+        else if isGoodbye(body: body, words: words) { kind = .bye }
+        else if let w = words.first, greetWords.contains(w), words.count <= 6, !words.contains("welcome") { kind = .greeting }
+        else if words.first == "good" && words.count <= 5 && (words.contains("morning") || words.contains("evening") || words.contains("afternoon")) { kind = .greeting }
+        else if words.contains("welcome") { kind = .statement(.welcome) }
+        else if event != nil { kind = .statement(.event) }
+        else if words.isEmpty || words.allSatisfy({ fillerWords.contains($0) }) || (words.count <= 2 && !body.contains(" i ")) { kind = .statement(.filler) }
+        else if has(["think", "honestly", "better", "worse", "worst", "best", "overrated", "underrated", "prefer", "love", "hate", "opinion", "agree", "should", "favorite", "favourite"]) { kind = .statement(.opinion) }
+        else { kind = .statement(.news) }
+        return HostIntent(kind: kind, mentions: mentions, keywords: keywords, event: event, body: body)
     }
 
-    /// "Tea or coffee?" → ("tea", "coffee"). Only short, clean options are used.
-    static func choice(in lower: String) -> (String, String)? {
-        guard let range = lower.range(of: " or ") else { return nil }
-        let filler: Set<String> = ["should", "i", "we", "do", "you", "prefer", "like", "want", "would", "rather", "play", "go", "with", "for", "the", "a", "an", "chat", "guys", "so", "ok", "okay", "which", "is", "it", "better", "more", "what", "pick", "team"]
-        let before = lower[..<range.lowerBound].split { !$0.isLetter && $0 != "'" && $0 != "-" }.map(String.init)
+    private static func isHowAreYou(_ body: String) -> Bool {
+        ["how are you", "how are y'all", "how are yall", "how is everyone", "how is chat", "how are we doing", "how are we feeling today", "how is your day", "how is your night", "how is your evening", "how was your day", "how is it going", "how are things", "how you doing", "how are you all"].contains { body.contains($0) }
+            && !body.contains("how are you feeling about") && !body.contains("how are we feeling about")
+    }
+    private static func isGoodbye(body: String, words: [String]) -> Bool {
+        ["good night", "goodnight", "night all", "night chat", "night everyone", "gotta go", "signing off", "ending the stream", "ending stream", "end the stream", "wrapping up", "that's it for today", "that's it for tonight", "see you tomorrow", "see you next time", "see ya", "bye"].contains { body.contains($0) }
+            || words == ["gn"] || words == ["night"] || words.first == "bye"
+    }
+    private static func yesNoForm(core: [String], body: String) -> YesNoForm {
+        let first = core.first ?? ""
+        if ["should", "shall"].contains(first) || body.contains("should i") || body.contains("do i ") || body.contains("would it be") { return .advice }
+        if ["can you hear", "can you see", "can y'all hear", "can everyone hear", "are we live", "is the audio", "is the sound", "is the mic", "is my mic", "is the stream", "is it lagging", "am i live", "is this working"].contains(where: body.contains) { return .check }
+        if ["anyone", "anybody"].contains(first) && ["here", "around", "awake", "still", "watching"].contains(where: body.contains) || body.contains("is anyone here") || body.contains("who is here") { return .presence }
+        return .general
+    }
+
+    /// "Tea or coffee?" → ("tea", "coffee"). Only short, clean options from a question are used.
+    static func choice(in body: String) -> (String, String)? {
+        guard body.contains("?"), let range = body.range(of: " or "), !body.contains("whether") else { return nil }
+        let clauseBreak: Set<Character> = [",", ":", ";", "!", ".", "?"]
+        let leftClause = body[..<range.lowerBound].split(omittingEmptySubsequences: false, whereSeparator: { clauseBreak.contains($0) }).last.map(String.init) ?? ""
+        let rightClause = body[range.upperBound...].split(omittingEmptySubsequences: false, whereSeparator: { clauseBreak.contains($0) }).first.map(String.init) ?? ""
+        let tokenize = { (s: String) in s.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "-" }.map(String.init) }
+        let fillerLeft: Set<String> = ["should", "i", "we", "do", "you", "prefer", "like", "want", "would", "rather", "play", "go", "with", "for", "the", "a", "an", "chat", "guys", "so", "ok", "okay", "which", "is", "it", "better", "more", "what", "pick", "team", "get", "have", "eat", "drink", "watch", "make", "choose", "either", "between", "are", "your", "my", "y'all", "to", "of"]
+        let stopRight: Set<String> = ["in", "on", "at", "for", "to", "tonight", "today", "now", "later", "then", "first", "instead", "again", "this", "that", "what", "so", "something", "anything", "please", "chat", "guys", "lol", "or", "next", "tomorrow", "y'all", "with", "after", "before"]
+        let banned: Set<String> = ["not", "no", "later", "less", "more", "so", "else", "what", "something", "anything", "whatever", "nothing", "both", "neither", "sooner", "never", "maybe", "it", "that", "this", "them", "me", "you"]
         var leftWords: [String] = []
-        for word in before.reversed() { if filler.contains(word) || leftWords.count == 2 { break }; leftWords.insert(word, at: 0) }
-        let after = lower[range.upperBound...].prefix { $0 != "?" && $0 != "." && $0 != "," && $0 != "!" }
-        let rightWords = Array(after.split { !$0.isLetter && $0 != "'" && $0 != "-" }.map(String.init).filter { !["the", "a", "an"].contains($0) }.prefix(2))
-        guard !leftWords.isEmpty, !rightWords.isEmpty, rightWords.count <= 2 else { return nil }
+        for word in tokenize(leftClause).reversed() { if fillerLeft.contains(word) || leftWords.count == 2 { break }; leftWords.insert(word, at: 0) }
+        var rightWords: [String] = []
+        for word in tokenize(rightClause) where !(rightWords.isEmpty && ["the", "a", "an", "team", "maybe"].contains(word)) { if stopRight.contains(word) || rightWords.count == 2 { break }; rightWords.append(word) }
+        guard !leftWords.isEmpty, !rightWords.isEmpty else { return nil }
         let left = leftWords.joined(separator: " "), right = rightWords.joined(separator: " ")
-        guard left != right, left.count <= 20, right.count <= 20, !["not", "no"].contains(right) else { return nil }
+        guard left != right, left.count <= 20, right.count <= 20, !banned.contains(left), !banned.contains(right),
+              !banned.contains(leftWords.last ?? ""), !banned.contains(rightWords.last ?? "") else { return nil }
         return (left, right)
     }
 
-    private static func detectEvent(lower: String, words: [String]) -> StreamEvent? {
-        let negative = lower.contains("won't") || lower.contains("didn't") || ["not", "never", "haven't", "no", "не"].contains { words.contains($0) }
-        if !negative && (words.contains("won") || words.contains("победа")) { return .win }
-        if words.contains("haha") || words.contains("hahaha") || words.contains("хаха") || words.contains("lmao") { return .laugh }
-        if words.contains("brb") || words.contains("перерыв") { return .breakTime }
+    /// Only clear first-person announcements count. "who won?", "I almost won" or "they won" do not.
+    private static func detectEvent(body: String, words: [String]) -> StreamEvent? {
+        let negative = ["not", "never", "no", "didn't", "won't", "almost", "nearly", "could", "would", "should", "if", "не"].contains { words.contains($0) }
+        let isQuestion = body.contains("?")
+        if !negative && !isQuestion {
+            for i in words.indices where words[i] == "won" {
+                let before = i > 0 ? words[i - 1] : ""
+                let before2 = i > 1 ? words[i - 2] : ""
+                if i == 0 || ["i", "we"].contains(before) || (before == "just" && ["i", "we"].contains(before2)) || before == "finally" { return .win }
+            }
+            if words.contains("победа") || words.contains("выиграл") || words.contains("выиграла") { return .win }
+        }
+        if words.contains("brb") || body.contains("be right back") || body.contains("short break") || words.contains("перерыв") { return .breakTime }
+        if words == ["back"] || words == ["wb"] || body.contains("i'm back") || body.contains("im back") || body.contains("i am back") || body.contains("we're back") || body.contains("back now") || words.contains("вернулся") || words.contains("вернулась") { return .returnLive }
         return nil
     }
 }
@@ -149,14 +208,16 @@ struct EngineMetrics {
     private(set) var modelDiscarded = 0
     private(set) var sameUpdateReplies = 0
 
-    mutating func record(_ message: PlannedMessage, at time: Double) {
+    mutating func record(_ message: PlannedMessage, at time: Double, parentShownAt: Double?) {
         delivered[message.source, default: 0] += 1
         let delay = time - message.causeTime
         if message.source == .hostReply { Self.keep(&hostReplyDelays, delay) }
         if message.source == .eventReaction { Self.keep(&reactionDelays, delay) }
         Self.keep(&lateness, time - message.due)
         if message.writtenByModel { modelDelivered += 1 }
-        if (message.source == .hostReply || message.source == .eventReaction) && delay < 1 { sameUpdateReplies += 1 }
+        // Anything that answers something must not appear within a second of what it answers.
+        if let parent = parentShownAt, time - parent < 1 { sameUpdateReplies += 1 }
+        else if parentShownAt == nil && (message.source == .hostReply || message.source == .eventReaction || message.source == .giftReaction) && delay < 1 { sameUpdateReplies += 1 }
     }
     mutating func drop(_ message: PlannedMessage, _ reason: DropReason) {
         dropped[reason, default: 0] += 1

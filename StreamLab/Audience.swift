@@ -59,6 +59,16 @@ struct Participant: Identifiable, Codable, Equatable {
     var openQuestionAt: Double = -1000
 
     var present: Bool { presence == .present }
+    func sanitized() -> Participant {
+        func clamp(_ v: Double, _ lo: Double, _ hi: Double) -> Double { v.isFinite ? min(hi, max(lo, v)) : lo }
+        let v = voice
+        let safeVoice = Voice(casual: clamp(v.casual, 0, 1), brevity: clamp(v.brevity, 0, 1), chattiness: clamp(v.chattiness, 0.05, 3),
+                              attention: clamp(v.attention, 0.1, 1), noticeLag: clamp(v.noticeLag, 0.3, 6), readingWordsPerSecond: clamp(v.readingWordsPerSecond, 1.5, 8),
+                              typingCharactersPerSecond: clamp(v.typingCharactersPerSecond, 2, 12), curiosity: clamp(v.curiosity, 0, 1), generosity: clamp(v.generosity, 0, 1))
+        var copy = Participant(id: id, name: name, avatar: String(avatar.prefix(2)), color: min(5, max(0, color)), personality: personality, voice: safeVoice, regular: regular)
+        copy.pastTips = max(0, pastTips); copy.pastTipTotal = max(0, pastTipTotal); copy.sessionsSeen = max(0, sessionsSeen); copy.streamsChatted = max(0, streamsChatted)
+        return copy
+    }
     private enum CodingKeys: String, CodingKey { case id, name, avatar, color, personality, voice, regular, pastTips, pastTipTotal, sessionsSeen, streamsChatted }
 }
 
@@ -75,9 +85,12 @@ struct Audience {
 
     init(restoring saved: [Participant]? = nil, using random: inout StreamRandom) {
         if let saved, !saved.isEmpty {
-            for var person in saved.prefix(220) where !person.name.isEmpty && usedNames.insert(person.name.lowercased()).inserted {
+            var usedIDs: Set<Int> = []
+            for var person in saved.prefix(220) where !person.name.isEmpty && person.name.count <= 40 && !person.avatar.isEmpty
+                && usedIDs.insert(person.id).inserted && usedNames.insert(person.name.lowercased()).inserted {
+                // Stored data is untrusted: out-of-range values would crash rendering or break timing.
+                person = person.sanitized()
                 person.presence = .away
-                person.sessionsSeen += 1
                 people.append(person)
                 nextID = max(nextID, person.id + 1)
             }
@@ -170,12 +183,16 @@ struct Audience {
         for i in order.prefix(count) { people[i].presence = .present; people[i].joinedAt = now - random.unit() * 600 }
     }
 
-    var snapshot: CommunitySnapshot {
+    /// Warm-up chatter before Go live is not part of any stream.
+    mutating func resetStreamCounts() { for i in people.indices { people[i].messages = 0 } }
+
+    /// `countStream` is false for a session that never went live, so it adds no history.
+    func snapshot(countStream: Bool) -> CommunitySnapshot {
         var stored = people.sorted { ($0.pastTipTotal + $0.sessionTipTotal, $0.messages) > ($1.pastTipTotal + $1.sessionTipTotal, $1.messages) }
         stored = Array(stored.prefix(160))
         for i in stored.indices {
             stored[i].pastTips += stored[i].sessionTips; stored[i].pastTipTotal += stored[i].sessionTipTotal
-            if stored[i].messages > 0 { stored[i].streamsChatted += 1 }
+            if countStream && stored[i].messages > 0 { stored[i].streamsChatted += 1 }
             stored[i].sessionTips = 0; stored[i].sessionTipTotal = 0
         }
         return CommunitySnapshot(people: stored.sorted { $0.id < $1.id })

@@ -35,9 +35,14 @@ enum ConversationLibrary {
     ]
     /// v5 exchanges reused as single question-and-answer seeds. Their third lines are not used:
     /// they did not say who was speaking, which made stories jump between people.
+    /// Openers that react to something unseen or make claims about the host or chat are left out.
     static let legacyTopics: [ChatTopic] = exchanges.keys.sorted().filter { $0 == "general" || Scenario(rawValue: $0) != nil }.flatMap { key in
-        (exchanges[key] ?? []).enumerated().map { item in
-            ChatTopic(id: "v5." + key + ":" + String(item.offset), scenes: [key == "general" ? "any" : key], openers: [item.element[0]], answers: Array(item.element.dropFirst().prefix(1)), followUps: [], hostKeywords: [])
+        (exchanges[key] ?? []).enumerated().compactMap { item -> ChatTopic? in
+            let opener = item.element[0], lower = opener.lowercased()
+            let selfContained = opener.hasSuffix("?") || ["i ", "i'm ", "my ", "anyone ", "does anyone", "watching "].contains { lower.hasPrefix($0) }
+            let aboutOthers = ["chat ", "chat,", "you ", "your ", "that ", "this is", "exactly that", "the attempt", "between attempts", "tiny improvements"].contains { lower.contains($0) } && !opener.hasSuffix("?")
+            guard selfContained, !aboutOthers else { return nil }
+            return ChatTopic(id: "v5." + key + ":" + String(item.offset), scenes: [key == "general" ? "any" : key], openers: [opener], answers: Array(item.element.dropFirst().prefix(1)), followUps: [], hostKeywords: [])
         }
     }
     static func threads(event: StreamEvent?, scenario: Scenario) -> [ConversationThread] {

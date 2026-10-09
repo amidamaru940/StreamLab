@@ -46,7 +46,8 @@ struct CameraCueGate {
                 candidate = sample.faceVisible ? .faceBack : .faceAway
             }
         }
-        if sample.faceVisible && sample.smiling {
+        // A smile seen by the rear camera is someone else's; only the selfie camera shows the host.
+        if frontCamera && sample.faceVisible && sample.smiling {
             neutralSince = nil
             if smileSince == nil { smileSince = time }
             if !smileLatched && time - (smileSince ?? time) >= 1.5 {

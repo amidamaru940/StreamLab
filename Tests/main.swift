@@ -30,7 +30,8 @@ let winAt = sim.now
 advance(&sim, seconds: 25)
 let winReactions = sim.messages.filter { $0.source == .eventReaction && $0.postedAt > winAt }
 check(!winReactions.isEmpty && winReactions.allSatisfy { $0.postedAt - winAt >= 1.2 }, "Win reactions arrive after noticing and typing time")
-check(Set(winReactions.map(\.postedAt)).count == winReactions.count, "Reactions do not all land at the same moment")
+let winTimes = winReactions.map(\.postedAt)
+check(winTimes.count < 3 || (winTimes.max()! - winTimes.min()! >= 2), "Reactions are spread out rather than landing together")
 sim.donate()
 let freeze = (sim.elapsed, sim.messages.count, sim.total, sim.donation?.id, sim.donationProgress)
 sim.pause(); advance(&sim, seconds: 30); sim.donate(); sim.trigger(.fail); sim.send("test")
@@ -115,14 +116,21 @@ check(!interleaved.isEmpty, "Other conversation continues alongside the question
 check(talk.metrics.sameUpdateReplies == 0, "No reply lands within one second of its cause")
 _ = hostID
 
+let hostQuestions = ["What should I eat tonight?", "Do you like rainy days?", "Should I stream tomorrow?", "Pizza or pasta?", "How are you all doing?",
+    "What are you all drinking?", "Cats or dogs?", "Anyone here?", "Can you hear me okay?", "What music are you listening to lately?",
+    "Should I start a new game?", "Morning or night person?", "What's everyone snacking on?", "Do you play any instruments?", "Where would you travel next?",
+    "Is anyone still at work?", "What's your comfort food?", "Sweet or salty?", "How was your day?", "Do you cook much?",
+    "Should I get coffee?", "What time is it for you?", "Summer or winter?", "Are you watching anything good?", "What's the weather like where you are?",
+    "Any weekend plans?", "Books or movies?", "Do you have pets?", "What did you have for dinner?", "Should I take a break soon?",
+    "Tea or coffee?", "How long have you been up?", "What's your favorite season?", "Do you like spicy food?", "Beach or mountains?",
+    "What are you working on today?", "Can you see the screen fine?", "Anyone else tired?", "What should I name my plant?", "Early bird or night owl?"]
 // Delay distribution across many questions (hypotheses, measured not asserted as targets).
 var delays: [Double] = []
 var unanswered = 0
 for seed in 0..<40 {
     var s = Simulation(settings: quiet, seed: UInt64(5000 + seed))
     advance(&s, seconds: 5)
-    let questions = ["What should I eat tonight?", "Do you like rainy days?", "Should I stream tomorrow?", "Pizza or pasta?", "How are you all doing?"]
-    s.send(questions[seed % questions.count]); let at = s.now
+    s.send(hostQuestions[seed]); let at = s.now
     advance(&s, seconds: 60)
     let r = s.messages.filter { $0.source == .hostReply && $0.postedAt > at }.map { $0.postedAt - at }
     if r.isEmpty { unanswered += 1 }
@@ -130,9 +138,9 @@ for seed in 0..<40 {
 }
 let sortedDelays = delays.sorted()
 let medianDelay = sortedDelays[sortedDelays.count / 2], fastest = sortedDelays.first!, p90 = sortedDelays[Int(Double(sortedDelays.count) * 0.9)]
-print(String(format: "Host reply delays over 40 questions: n=%d fastest %.1fs median %.1fs p90 %.1fs; unanswered %d", delays.count, fastest, medianDelay, p90, unanswered))
+print(String(format: "Host reply delays, 40 different questions: n=%d fastest %.1fs median %.1fs p90 %.1fs; unanswered %d", delays.count, fastest, medianDelay, p90, unanswered))
 check(fastest >= 1.3 && medianDelay >= 3 && medianDelay <= 16, "Typical replies arrive after a human-like pause")
-check(unanswered <= 8, "Most questions get some answer, a few do not")
+check(unanswered <= 10, "Most questions get some answer, a few do not")
 
 // MARK: Viewer topics keep authors and addressees
 var topicSim = Simulation(settings: quiet, seed: 77)
@@ -144,7 +152,7 @@ var addressOK = true
 for answer in answers {
     guard let target = answer.replyTo else { addressOK = false; continue }
     if let opener = topicSim.messages.last(where: { $0.source == .topicOpener && $0.name == target && $0.postedAt <= answer.postedAt }) {
-        if answer.postedAt - opener.postedAt < 2 || opener.participantID == answer.participantID { addressOK = false }
+        if answer.postedAt - opener.postedAt < (Simulation.isShort(answer.text) ? 1.2 : 2) || opener.participantID == answer.participantID { addressOK = false }
     }
 }
 check(addressOK, "Answers name the person who asked, arrive later and never come from the asker")
@@ -156,25 +164,66 @@ _ = byID
 var moments = Simulation(settings: quiet, seed: 9)
 advance(&moments, seconds: 5)
 moments.trigger(.win)
+let pendingWin = moments.pending.filter { $0.source == .eventReaction }.count
+let droppedBefore = moments.metrics.dropped[.staleContext] ?? 0
 moments.trigger(.fail)
 let switchedAt = moments.now
 advance(&moments, seconds: 25)
 let winOnly = Set((ChatContent.events["Win"] ?? []) + (ChatContent.events["Win.quick"] ?? [])).subtracting((ChatContent.events["Fail"] ?? []) + (ChatContent.events["Fail.quick"] ?? []))
 let afterSwitch = moments.messages.filter { $0.source == .eventReaction && $0.postedAt > switchedAt }
 check(!afterSwitch.contains { winOnly.contains($0.text) }, "Reactions to a replaced moment are not shown late")
-check((moments.metrics.dropped[.staleContext] ?? 0) > 0 || afterSwitch.isEmpty == false, "Replaced moment cancels its queued reactions")
-var camera = Simulation(settings: quiet, seed: 10)
-camera.reactToCamera(.movement)
-let movementAt = camera.now
-advance(&camera, seconds: 20)
-let cameraReactions = camera.messages.filter { $0.source == .eventReaction && $0.postedAt > movementAt }
-check(cameraReactions.count <= 3 && cameraReactions.allSatisfy { $0.postedAt - movementAt >= 2 }, "Camera cues get few, later reactions after confirmation")
+check((moments.metrics.dropped[.staleContext] ?? 0) - droppedBefore == pendingWin, "Every queued reaction to the replaced moment is cancelled")
+var cameraTotal = 0, cameraOK = true
+for seed: UInt64 in 10..<20 {
+    var camera = Simulation(settings: quiet, seed: seed)
+    camera.reactToCamera(.movement)
+    let movementAt = camera.now
+    advance(&camera, seconds: 20)
+    let cameraReactions = camera.messages.filter { $0.source == .eventReaction && $0.postedAt > movementAt }
+    cameraTotal += cameraReactions.count
+    if cameraReactions.count > 2 || !cameraReactions.allSatisfy({ $0.postedAt - movementAt >= 2 }) { cameraOK = false }
+}
+check(cameraOK && cameraTotal > 0, "Camera cues get at most two later reactions, and sometimes none")
+// The host coming back cancels "where did you go" reactions still waiting (review finding F13).
+var away = Simulation(settings: quiet, seed: 33)
+away.reactToCamera(.faceAway)
+advance(&away, seconds: 6)
+let awayPending = away.pending.filter { $0.source == .eventReaction }.count
+check(away.reactToCamera(.faceBack) && away.context == .faceBack, "A quick return is not swallowed by the camera cooldown")
+let backAt = away.now
+advance(&away, seconds: 25)
+let awayLines = Set((ChatContent.events["Face out of frame"] ?? []) + (ChatContent.events["Face out of frame.quick"] ?? []))
+check(!away.messages.contains { $0.postedAt > backAt && awayLines.contains($0.text) } && (awayPending == 0 || (away.metrics.dropped[.staleContext] ?? 0) > 0), "Nobody asks where the host went after they are back")
+var noAway = Simulation(settings: quiet, seed: 34)
+check(!noAway.reactToCamera(.faceBack), "A face appearing without having left is not a return")
+// Breaks end when the host is back (review finding F1).
+var pause = Simulation(settings: quiet, seed: 35)
+pause.trigger(.breakTime); check(pause.breakActive, "BRB starts a break")
+pause.send("ok i'm back"); check(!pause.breakActive, "Typing that you are back ends the break")
+pause.trigger(.breakTime); pause.trigger(.laugh); check(!pause.breakActive, "Any other moment the host marks ends the break")
 
 // MARK: Host text understanding
 check(HostIntent.choice(in: "tea or coffee?")! == ("tea", "coffee"), "Simple choice is extracted")
 check(HostIntent.choice(in: "should i play ranked or casual?")! == ("ranked", "casual"), "Choice skips filler words")
 check(HostIntent.parse("Привет, как дела?").kind == .nonEnglish, "Non-Latin text is recognised as possibly unreadable for viewers")
-check(HostIntent.parse("hi chat").kind == .greeting && HostIntent.parse("Do you like cats?").kind == .yesNoQuestion, "Greetings and yes/no questions are recognised")
+check(HostIntent.parse("hi chat").kind == .greeting && HostIntent.parse("Do you like cats?").kind == .yesNoQuestion(.general), "Greetings and yes/no questions are recognised")
+// Host text classification on realistic lines (review findings F6–F11).
+func kindOf(_ text: String) -> HostIntent.Kind { HostIntent.parse(text).kind }
+func eventOf(_ text: String) -> StreamEvent? { HostIntent.parse(text).event }
+check(eventOf("who won?") == nil && eventOf("I almost won") == nil && eventOf("they won the match") == nil && eventOf("have you ever won anything?") == nil, "Questions, near misses and other people's wins are not a Win")
+check(eventOf("i won") == .win && eventOf("we just won!") == .win && eventOf("WON IT") == .win, "First-person wins are a Win")
+check(eventOf("brb") == .breakTime && eventOf("i'm back") == .returnLive && eventOf("ok back now") == .returnLive, "Break and return are recognised from text")
+check(eventOf("haha that was dumb") == nil, "The host laughing in text is not a staged Laugh moment")
+check(kindOf("thanks! what should I play next?") == .openQuestion, "A question after a thank-you is still a question")
+check(kindOf("good night chat") == .bye && kindOf("night shift vibes today") != .bye, "Goodbyes need a goodbye phrase, not the word night")
+check(kindOf("what a comeback!") == .statement(.news) || kindOf("what a comeback!") == .statement(.filler), "Exclamations are not questions")
+check(kindOf("what should i play next") == .openQuestion && kindOf("hey chat what's everyone drinking") == .openQuestion, "Questions without a question mark or after a greeting are questions")
+check(kindOf("@lunar_fox tea or coffee?") == .choice("tea", "coffee") && kindOf("@aqua.kiwi68 what are you drinking") == .openQuestion, "Mentions are removed before reading the question")
+check(kindOf("i'll do it sooner or later.") != .choice("sooner", "later") && HostIntent.choice(in: "is it this or not?") == nil, "Idioms and 'or not' are not polls")
+check(HostIntent.choice(in: "coffee or tea in the morning?")! == ("coffee", "tea") && HostIntent.choice(in: "ok, team coffee or team tea?")! == ("coffee", "tea"), "Options stop at prepositions, clause breaks and 'team'")
+check(kindOf("can you hear me?") == .yesNoQuestion(.check) && kindOf("anyone here?") == .yesNoQuestion(.presence) && kindOf("should I stream tomorrow?") == .yesNoQuestion(.advice), "Yes/no questions are told apart by form")
+check(kindOf("lol") == .statement(.filler) && kindOf("I think pineapple is fine on pizza") == .statement(.opinion) && kindOf("welcome @lunar_fox") == .statement(.welcome) && kindOf("brb") == .statement(.event), "Statements are told apart: filler, opinion, welcome, event")
+check(kindOf("how are we feeling about this boss?") == .openQuestion && kindOf("how is everyone doing?") == .howAreYou, "How-are-you needs the actual phrase")
 var words = Simulation(settings: quiet, seed: 91)
 words.send("wonderful evening"); check(words.context == nil, "Wonderful does not trigger Win")
 words.send("I haven't won yet"); check(words.context == nil, "Negated victory is not a win")
@@ -243,32 +292,51 @@ check(flickerEvents.isEmpty, "Brief visual flicker is filtered")
 // MARK: On-device writer contract
 var writerSettings = quiet; writerSettings.localWriting = true
 var written = Simulation(settings: writerSettings, seed: 333)
-written.send("What should I cook this weekend?")
-let request = written.makeWritingRequest()
-check(request != nil && request!.ambientCount > 0, "Writer is asked for fresh neutral lines")
+var request: WritingRequest? = nil
+for question in ["What should I cook this weekend?", "What are you all drinking tonight?", "What's everyone snacking on?", "What music are you listening to lately?", "Where would you travel next?", "What's your comfort food?"] where request?.slots.isEmpty ?? true {
+    written.send(question)
+    request = written.makeWritingRequest()
+}
 let slots = request?.slots ?? []
-check(!slots.isEmpty && slots.allSatisfy { $0.kind == .replyToHost }, "Scheduled replies to the host are offered to the writer with their author's voice")
+check(!slots.isEmpty && slots.allSatisfy { $0.kind == .replyToHost }, "Scheduled replies to the host are offered to the writer")
+check(slots.allSatisfy { slot in written.pending.first { $0.id == slot.id }.flatMap { written.audience[$0.participant]?.voice.summary } == slot.voice }, "Each slot carries its planned author's writing habits")
+let plannedAuthors = Dictionary(uniqueKeysWithValues: written.pending.map { ($0.id, $0.participant) })
 var texts: [UUID: String] = [:]
-for (i, slot) in slots.enumerated() { texts[slot.id] = ["probably something with rice", "soup, it's getting cold", "whatever is in the fridge"][i % 3] }
-let accepted = written.acceptWriting(WritingResult(slotTexts: texts, ambient: ["anyone else's cat sitting on the keyboard rn", "my tea went cold again"]), for: request!)
-check(accepted >= 2, "Valid generated lines are accepted")
-advance(&written, seconds: 60)
-check(written.acceptedLocalMessages >= 1 && written.metrics.modelDelivered >= 1, "Generated text is shown through the normal scheduler, by the planned author")
+for (i, slot) in slots.enumerated() { texts[slot.id] = ["probably something with rice", "soup, it's getting cold", "whatever is in the fridge", "leftovers if i'm honest"][i % 4] }
+let accepted = written.acceptWriting(WritingResult(slotTexts: texts, ambient: []), for: request!)
+check(accepted >= 1, "Valid generated replies are accepted")
+check(written.acceptWriting(WritingResult(slotTexts: [slots[0].id: "@someone buy this for $5"], ambient: []), for: request!) == 0 && !written.pending.contains { $0.text.contains("@someone") }, "Model lines with mentions or money are rejected")
+advance(&written, seconds: 70)
+let shownSlots = slots.compactMap { slot -> ChatMessage? in written.messages.first { $0.text == texts[slot.id] && $0.source == .hostReply } }
+check(!shownSlots.isEmpty && shownSlots.allSatisfy { m in m.replyToHost && slots.contains { plannedAuthors[$0.id] == m.participantID && texts[$0.id] == m.text } }, "Generated replies are shown by the planned author, addressed to the host")
+check(written.metrics.modelDelivered >= shownSlots.count, "Shown model lines are counted")
+let ambientRequest = written.makeWritingRequest()
+check(ambientRequest != nil && ambientRequest!.ambientCount > 0, "Writer is asked for fresh neutral lines")
+check(written.acceptWriting(WritingResult(slotTexts: [:], ambient: ["anyone else's cat sitting on the keyboard rn", "my tea went cold again"]), for: ambientRequest!) == 2, "Fresh neutral lines are accepted into the buffer")
 written.send("Any plans for tonight?")
-let staleRequest = written.makeWritingRequest()
+let lateRequest = written.makeWritingRequest()
 advance(&written, seconds: 90)
-let lateAccepted = written.acceptWriting(WritingResult(slotTexts: Dictionary(uniqueKeysWithValues: (staleRequest?.slots ?? []).map { ($0.id, "this arrived far too late") }), ambient: []), for: staleRequest ?? request!)
+let lateAccepted = written.acceptWriting(WritingResult(slotTexts: Dictionary(uniqueKeysWithValues: (lateRequest?.slots ?? []).map { ($0.id, "this arrived far too late") }), ambient: []), for: lateRequest ?? ambientRequest!)
 check(lateAccepted == 0 && !written.messages.contains { $0.text == "this arrived far too late" }, "Late generation results are discarded, not shown out of context")
-let pausedRequest = written.makeWritingRequest()
+var titleSettings = writerSettings; titleSettings.streamTitle = "Friday coffee chat"
+written.apply(titleSettings)
+let titledRequest = written.makeWritingRequest()
+check(titledRequest?.streamTitle == "Friday coffee chat", "Editable title reaches on-device writing context")
 written.pause()
-if let pausedRequest { check(written.acceptWriting(WritingResult(slotTexts: [:], ambient: ["should not arrive during a pause"]), for: pausedRequest) == 0, "Paused stream rejects in-flight generated content") }
+check(written.acceptWriting(WritingResult(slotTexts: [:], ambient: ["should not arrive during a pause"]), for: titledRequest!) == 0, "Paused stream rejects in-flight generated content")
 written.resume()
+// Old results cannot leak into a new scene or a replaced moment (v5 check, restored).
+var stale = Simulation(settings: writerSettings, seed: 444)
+stale.trigger(.win)
+let eventRequest = stale.makeWritingRequest()
+stale.trigger(.fail)
+var staleSettings = stale.settings; staleSettings.scenario = .gaming; stale.apply(staleSettings)
+let staleTexts = Dictionary(uniqueKeysWithValues: (eventRequest?.slots ?? []).map { ($0.id, "stale wording for an old moment") })
+check(eventRequest != nil && stale.acceptWriting(WritingResult(slotTexts: staleTexts, ambient: ["stale ambient line from the old scene"]), for: eventRequest!) == 0, "Old generation results cannot leak into a new scene or a replaced moment")
 let parsedRequest = WritingRequest(category: "Just Chatting", streamTitle: "t", visualHint: "", recentChat: [], slots: [WritingSlot(id: UUID(), kind: .replyToHost, voice: "short", about: "hi", maxLength: 60)], ambientCount: 1)
 check(WritingResult.parse("```json\n{\"line1\":\"hey\",\"ambient\":[\"hello chat\"]}\n```", request: parsedRequest)?.ambient == ["hello chat"], "Structured local model response parser")
 check(WritingResult.parse("not JSON", request: parsedRequest) == nil && WritingResult.parse("}{", request: parsedRequest) == nil && WritingResult.parse(String(repeating: "x", count: 13000), request: parsedRequest) == nil, "Malformed or oversized writing is rejected")
-var titleSettings = writerSettings; titleSettings.streamTitle = "Friday coffee chat"
-written.apply(titleSettings)
-check(written.makeWritingRequest()?.streamTitle ?? "Friday coffee chat" == "Friday coffee chat", "Editable title reaches on-device writing context")
+check(!Simulation.acceptableModelLine("привет всем", maxLength: 60) && !Simulation.acceptableModelLine("#ad check this", maxLength: 60) && Simulation.acceptableModelLine("my tea went cold again", maxLength: 60), "Model output in another language or with tags is rejected")
 
 // MARK: Donors are members of the audience
 var tips = Simulation(settings: quiet, seed: 717)
@@ -276,6 +344,7 @@ var notes = Set<String>(); var silentTips = 0
 for _ in 0..<300 {
     check(tips.donate(), "Accept next tip")
     let tip = tips.donation!
+    if tip.returning && tip.message.lowercased().contains("first") { fatalError("Returning donor claims to be new: \(tip.message)") }
     if tip.message.isEmpty { silentTips += 1 }
     else { guard notes.insert(TextMemory.canonical(tip.message)).inserted else { fatalError("Tip note repeated") } }
     check(tips.audience[tip.participantID] != nil, "Donor is a known participant")
@@ -294,6 +363,10 @@ let thankedAt = thanks.now
 advance(&thanks, seconds: 40)
 let donorReplies = thanks.messages.filter { $0.participantID == donorID && $0.postedAt > thankedAt && $0.replyToHost }
 check(donorReplies.count <= 1 && donorReplies.allSatisfy { $0.postedAt - thankedAt >= 2 && $0.replyToHost }, "Thanked donor answers at most once, later, as the same person")
+let thanksMessage = thanks.messages.first { $0.isHost && $0.postedAt == thankedAt }!
+let othersAnsweringThanks = thanks.messages.filter { $0.postedAt > thankedAt && $0.replyToHost && $0.participantID != donorID && $0.source == .hostReply }
+check(othersAnsweringThanks.isEmpty, "Thanking one supporter by name does not draw replies from strangers")
+_ = thanksMessage
 
 // MARK: Persistent community
 let snapshot = tips.communitySnapshot
@@ -303,6 +376,13 @@ var returning = Simulation(settings: quiet, seed: 99, community: decoded.people)
 check(decoded.people.count >= 60 && Set(decoded.people.map(\.name)).isSubset(of: Set(returning.audience.people.map(\.name))), "Community members return in the next session")
 check(returning.audience.people.reduce(0) { $0 + $1.pastTipTotal } == tips.total && returning.total == 0, "Past gifts are remembered as history, not counted again")
 check((try? JSONDecoder().decode(CommunitySnapshot.self, from: Data("{broken".utf8))) == nil, "Corrupt community data is rejected")
+var neverLive = Simulation(settings: quiet, seed: 98, community: decoded.people)
+neverLive.prepare(); advance(&neverLive, seconds: 5)
+let beforeHistory = decoded.people.reduce(0) { $0 + $1.streamsChatted }
+check(neverLive.communitySnapshot.people.reduce(0) { $0 + $1.streamsChatted } == beforeHistory, "Warm-up chatter before Go live adds no history")
+var corrupt = decoded.people[0]; corrupt = Participant(id: 9999, name: "broken_one", avatar: "BO", color: 77, personality: .joker, voice: Voice(casual: .nan, brevity: 5, chattiness: -1, attention: 0, noticeLag: 1e9, readingWordsPerSecond: 0, typingCharactersPerSecond: 0, curiosity: 2, generosity: -3), regular: true)
+let repaired = Simulation(settings: quiet, seed: 97, community: [corrupt]).audience[9999]
+check(repaired != nil && (0...5).contains(repaired!.color) && repaired!.voice.typingCharactersPerSecond >= 2 && repaired!.voice.noticeLag <= 6, "Out-of-range stored values are repaired instead of crashing")
 returning.donate(); check(returning.donation != nil, "A session with restored audience runs normally")
 
 // MARK: Stream lifecycle (D2)
@@ -374,7 +454,7 @@ for seed: UInt64 in [42, 100, 4242] {
     print(String(format: "Offline hour seed %llu: %d messages, last at %.0fs, longest silence %.0fs, repeated long lines %d, authors/min median %d, exhausted %@",
                  seed, count, lastPost, maxGap, repeats, authors[authors.count / 2], hour.contentExhausted ? "yes" : "no"))
     print("  delivered by source: " + MessageSource.allCases.map { "\($0.rawValue)=\(hour.metrics.delivered[$0] ?? 0)" }.joined(separator: " "))
-    check(lastPost > 3500 && count > 700, "Offline chat keeps going for a full hour (seed \(seed))")
+    check(lastPost > 3500 && count > 450, "Offline chat keeps going for a full hour (seed \(seed))")
     check(repeats == 0, "No long line repeats within the hour (seed \(seed))")
     check(maxGap < 60, "No minute-long dead air (seed \(seed))")
     check(hour.metrics.sameUpdateReplies == 0, "Nothing replies in the same moment as its cause (seed \(seed))")

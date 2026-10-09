@@ -40,7 +40,8 @@ import FoundationModels
         if #available(iOS 26.0, macOS 26.0, *) {
             let supported = SystemLanguageModel.default.supportedLanguages
             let english = supported.contains { $0.languageCode?.identifier == "en" }
-            let current = Locale.current.language
+            // The app runs in English; the phone's own preferred language is what matters for the model.
+            let current = Locale.Language(identifier: Locale.preferredLanguages.first ?? "en")
             let currentSupported = supported.contains { $0.languageCode == current.languageCode }
             let currentName = Locale(identifier: "en_US").localizedString(forLanguageCode: current.languageCode?.identifier ?? "") ?? (current.languageCode?.identifier ?? "unknown")
             return "\(supported.count) languages reported · English \(english ? "supported" : "not reported") · iPhone language \(currentName): \(currentSupported ? "supported" : "not reported")"
@@ -136,8 +137,10 @@ import FoundationModels
         return "Other error: " + String(text.prefix(120))
     }
 
+    /// Host text is quoted data on one line; it can never add instructions of its own.
     private static func quote(_ text: String) -> String {
-        "\"" + String(text.prefix(200)).replacingOccurrences(of: "\"", with: "'") + "\""
+        let flat = text.components(separatedBy: .newlines).joined(separator: " ")
+        return "\"" + String(flat.prefix(200)).replacingOccurrences(of: "\"", with: "'") + "\""
     }
     enum WritingError: Error { case unavailable, invalidResponse }
 }

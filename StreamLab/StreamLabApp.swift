@@ -54,7 +54,8 @@ struct ModelDiagnostics {
         if let error = diagnostics.lastError, let at = diagnostics.lastErrorAt, at > (diagnostics.lastSuccess ?? .distantPast) {
             return "Using the offline library · last on-device attempt failed: " + error
         }
-        if diagnostics.lastSuccess != nil { return "Apple Intelligence · writing on this iPhone" }
+        if engine.metrics.modelDelivered > 0 { return "Apple Intelligence · writing on this iPhone" }
+        if diagnostics.successes > 0 { return "Apple Intelligence answers, but none of its lines have been shown yet (see Diagnostics)" }
         return "Apple Intelligence available · waiting for the first lines"
     }
     func save(_ settings: Settings) {
@@ -67,7 +68,9 @@ struct ModelDiagnostics {
         saveCommunity()
         engine = Simulation(settings: engine.settings, community: Self.loadCommunity())
         engine.prepare()
-        nextWritingAllowed = -.infinity
+        nextWritingAllowed = -.infinity; failureStreak = 0
+        let availability = diagnostics.availability, languages = diagnostics.languages
+        diagnostics = ModelDiagnostics(); diagnostics.availability = availability; diagnostics.languages = languages
     }
     func stopWriting() { writingTask?.cancel(); writingTask = nil }
     func endStream() { engine.end(); stopWriting(); saveCommunity() }
@@ -96,14 +99,16 @@ struct ModelDiagnostics {
             self?.diagnostics.testRunning = false
         }
     }
+    func refreshAvailability() {
+        lastAvailabilityCheck = ProcessInfo.processInfo.systemUptime
+        diagnostics.availability = LocalChatWriter.availability(pauseInLowPower: engine.settings.pauseModelInLowPower)
+    }
     private func refreshWriting(now: Double) {
+        // Availability is reported even before Go live or while paused; only generation waits for a running stream.
+        if now - lastAvailabilityCheck >= 3 { refreshAvailability() }
         if !engine.running || !engine.settings.localWriting {
             if writingTask != nil { writingTask?.cancel(); writingTask = nil }
             return
-        }
-        if now - lastAvailabilityCheck >= 3 {
-            lastAvailabilityCheck = now
-            diagnostics.availability = LocalChatWriter.availability(pauseInLowPower: engine.settings.pauseModelInLowPower)
         }
         // E2: small, frequent requests. Generation does not delay chat: lines are already scheduled with library text.
         guard diagnostics.availability.ready, writingTask == nil, now >= nextWritingAllowed,
@@ -206,6 +211,7 @@ struct LiveView: View {
             let generator = UIImpactFeedbackGenerator(style: tier == .huge ? .heavy : tier == .large ? .medium : .light)
             generator.impactOccurred()
         }
+        .onChange(of: store.engine.phase) { _, phase in if phase == .ready { pinned = nil; unseen = 0; followChat = true } }
         .onDisappear { camera.stop(); store.stopWriting() }
     }
     private var header: some View {
@@ -291,7 +297,7 @@ struct LiveView: View {
                             Text(store.engine.settings.streamTitle).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
                             Image(systemName: "pencil").font(.caption2).foregroundStyle(.secondary)
                         }
-                    }.buttonStyle(.plain).accessibilityLabel("Edit stream title")
+                    }.buttonStyle(.plain).accessibilityLabel("Stream title: " + store.engine.settings.streamTitle).accessibilityHint("Double-tap to edit")
                     Text("\(store.engine.settings.channelName) · \(store.engine.activeScenario.category)").font(.caption).foregroundStyle(accent)
                 }
                 Spacer(minLength: 4)
@@ -301,7 +307,7 @@ struct LiveView: View {
                     .disabled(store.engine.phase != .live).opacity(store.engine.phase == .live ? 1 : 0.4)
             }
             HStack(spacing: 16) {
-                Label(store.engine.viewers.formatted(), systemImage: "person.2.fill").foregroundStyle(.red.opacity(0.9))
+                Label(store.engine.viewers.formatted(.number.locale(Locale(identifier: "en_US"))), systemImage: "person.2.fill").foregroundStyle(.red.opacity(0.9))
                 Label(USD.format(store.engine.total), systemImage: "gift").foregroundStyle(.secondary)
                 Spacer()
                 Button { showEvents = true } label: { Label("Studio", systemImage: "square.grid.2x2") }.tint(accent)
@@ -371,7 +377,7 @@ struct LiveView: View {
     }
     private var composer: some View {
         HStack(spacing: 10) {
-            TextField(store.engine.running ? "Send a message" : "Stream paused", text: $draft, axis: .vertical)
+            TextField(composerPlaceholder, text: $draft, axis: .vertical)
                 .font(.subheadline).lineLimit(1...2).onChange(of: draft) { _, value in draft = String(value.prefix(200)) }
             Button { store.engine.send(draft); draft = "" } label: { Image(systemName: "paperplane.fill").frame(width: 40, height: 40).foregroundStyle(accent) }
                 .accessibilityLabel("Send message").disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -397,7 +403,7 @@ struct LiveView: View {
                                 .background(store.engine.settings.scenario == scenario ? accent.opacity(0.2) : surface, in: RoundedRectangle(cornerRadius: 10))
                         }.buttonStyle(.plain)
                     }
-                }
+                }.disabled(!store.engine.running)
                 Text("MOMENTS").font(.caption.bold()).foregroundStyle(.secondary)
                 Text(store.engine.context.map { "Current cue: \($0.rawValue)" } ?? "Choose a moment for chat to react to.").font(.subheadline).foregroundStyle(.secondary)
                 if store.engine.libraryRateCap < store.engine.settings.messagesPerMinute {
@@ -410,10 +416,10 @@ struct LiveView: View {
                             Label(event.rawValue, systemImage: event.symbol).font(.subheadline).frame(maxWidth: .infinity).frame(height: 54).background(surface, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
-                }
+                }.disabled(!store.engine.running)
                 Button { store.engine.donate(); showEvents = false } label: {
                     Label("Send a tip", systemImage: "gift.fill").frame(maxWidth: .infinity).padding(12)
-                }.buttonStyle(.borderedProminent).disabled(store.engine.donationQueue.count >= 12)
+                }.buttonStyle(.borderedProminent).disabled(!store.engine.running || store.engine.donationQueue.count >= 12)
                 Button(role: .destructive) { confirmEnd = true } label: {
                     Label("End stream", systemImage: "stop.circle").frame(maxWidth: .infinity).padding(10)
                 }.buttonStyle(.bordered).disabled(store.engine.phase != .live)
@@ -421,7 +427,7 @@ struct LiveView: View {
                         Button("End stream", role: .destructive) { store.endStream(); camera.stop(); showEvents = false }
                     }
                 if !store.engine.giftHistory.isEmpty {
-                    Text("RECENT GIFTS · \(store.engine.giftHistory.count) · \(USD.format(store.engine.total))").font(.caption.bold()).foregroundStyle(.secondary)
+                    Text("RECENT GIFTS · \(store.engine.donationCount) · \(USD.format(store.engine.total))").font(.caption.bold()).foregroundStyle(.secondary)
                     ForEach(store.engine.giftHistory.suffix(6).reversed()) { gift in
                         HStack {
                             Text(gift.name).font(.subheadline).lineLimit(1)
@@ -434,12 +440,19 @@ struct LiveView: View {
                 if let donorID = store.engine.lastDonorID, let donor = store.engine.audience[donorID] {
                     Button { store.engine.thankLatestDonor(); showEvents = false } label: {
                         Label("Thank \(donor.name)", systemImage: "heart").frame(maxWidth: .infinity).padding(12)
-                    }.buttonStyle(.bordered)
+                    }.buttonStyle(.bordered).disabled(!store.engine.running)
                 }
                 Spacer()
-            }.disabled(!store.engine.running).padding(20)
+            }.padding(20)
             }.navigationTitle("Creator studio").navigationBarTitleDisplayMode(.inline).tint(accent)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showEvents = false } } }
+        }
+    }
+    private var composerPlaceholder: String {
+        switch store.engine.phase {
+        case .ready: return "Go live to chat"
+        case .ended: return "Stream ended"
+        case .live: return store.engine.running ? "Send a message" : "Stream paused"
         }
     }
     private var badgeText: String {
@@ -529,6 +542,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ViewState private var settings = Settings()
     @ViewState private var confirmReset = false
+    @ViewState private var loaded = false
     var body: some View {
         NavigationStack {
             Form {
@@ -543,7 +557,7 @@ struct SettingsView: View {
                 }
                 Section("Audience") {
                     Picker("Room size", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.rawValue).tag($0) } }
-                    Text("Applies to the next stream. A small room has fewer viewers and a calmer chat; a large one is busier.").font(.caption).foregroundStyle(.secondary)
+                    Text("Chat activity changes right away; the starting number of viewers applies from the next stream. A small room is calmer, a large one busier.").font(.caption).foregroundStyle(.secondary)
                     Text("Chat pace · about \(Int(settings.messagesPerMinute))/min")
                     Slider(value: $settings.messagesPerMinute, in: 2...90, step: 1)
                     Text("Mixed voices are automatic: casual chat, questions, humour, support and occasional disagreement. Recent wording is checked for close repeats.").font(.caption).foregroundStyle(.secondary)
@@ -584,7 +598,7 @@ struct SettingsView: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) { Button("Save") { store.save(settings); dismiss() } }
-                }.onAppear { settings = store.engine.settings }
+                }.onAppear { if !loaded { settings = store.engine.settings; loaded = true } }
                 .confirmationDialog("Reset this session?", isPresented: $confirmReset, titleVisibility: .visible) {
                     Button("New session", role: .destructive) { store.save(settings); store.reset(); dismiss() }
                 }
@@ -659,8 +673,9 @@ struct DiagnosticsView: View {
                 Text("Counts and timings only. No camera frames, audio or your messages are stored.").font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
+            .onAppear { store.refreshAvailability() }
     }
-    private func stateText(_ d: ModelDiagnostics) -> String { d.availability.ready ? "Available" : "Unavailable" }
+    private func stateText(_ d: ModelDiagnostics) -> String { d.availability.code == "checking" ? "Not checked yet" : d.availability.ready ? "Available" : "Unavailable" }
     private func droppedSummary(_ m: EngineMetrics) -> String {
         var parts: [String] = []
         for reason in DropReason.allCases { parts.append(reason.rawValue + " " + String(m.dropped[reason] ?? 0)) }
