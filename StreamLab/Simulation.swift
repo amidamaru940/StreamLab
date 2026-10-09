@@ -774,7 +774,8 @@ struct Simulation {
         if !activeTopics.isEmpty { options.append((0.22, 1)) }
         options.append((0.1, 2))
         if !aiAmbient.isEmpty { options.append((0.4, 3)) }
-        if !aiTopics.isEmpty && activeTopics.count < 2 { options.append((0.35, 6)) }
+        // A topic the model just invented fits the moment now, so it is used soon even in a busy room.
+        if !aiTopics.isEmpty { options.append((activeTopics.count < 2 ? 0.35 : 0.12, 6)) }
         options.append((0.08, 4))
         if now >= nextPollAllowed { options.append((0.12, 5)) }
         var roll = random.unit() * options.reduce(0) { $0 + $1.0 }
@@ -782,16 +783,12 @@ struct Simulation {
         for (w, c) in options { roll -= w; if roll < 0 { choice = c; break } }
         var produced = 0
         switch choice {
-        case 0: produced = startTopic()
+        case 0: produced = !aiTopics.isEmpty && random.chance(0.4) ? startAITopic() : startTopic()
         case 1: produced = lateAnswer()
         case 2: produced = viewerToHost()
         case 3: produced = ambientModelLine()
         case 5: produced = startDebate()
-        case 6:
-            let topic = aiTopics.removeFirst()
-            produced = startTopic(forced: topic)
-            // Nobody free to ask it right now: keep it for a later turn while it is still fresh.
-            if produced == 0 && memory.allows(topic.openers[0]) { aiTopics.insert(topic, at: 0) }
+        case 6: produced = startAITopic()
         default: produced = sideReaction()
         }
         if produced == 0 { produced = startTopic() }
@@ -808,6 +805,15 @@ struct Simulation {
     }
 
     private var sceneKeys: Set<String> { ["any", activeScenario.rawValue] }
+
+    private mutating func startAITopic() -> Int {
+        guard !aiTopics.isEmpty else { return 0 }
+        let topic = aiTopics.removeFirst()
+        let produced = startTopic(forced: topic)
+        // Nobody free to ask it right now: keep it for a later turn while it is still fresh.
+        if produced == 0 && memory.allows(topic.openers[0]) { aiTopics.insert(topic, at: 0) }
+        return produced
+    }
 
     /// `forced` is a topic the model just invented; otherwise one is chosen from the library.
     private mutating func startTopic(forced: ChatTopic? = nil) -> Int {
