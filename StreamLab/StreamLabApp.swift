@@ -579,7 +579,7 @@ struct SettingsView: View {
                     Toggle("Use Apple Intelligence when available", isOn: $settings.localWriting)
                     Toggle("Pause it in Low Power Mode", isOn: $settings.pauseModelInLowPower)
                     Text(store.writingStatus).font(.caption).foregroundStyle(.secondary)
-                    Text("StreamLab decides who speaks, to whom and when. Apple's on-device model, when available, only rewords lines that are already scheduled. The offline library always keeps chat going. No API key or usage charges.").font(.caption).foregroundStyle(.secondary)
+                    Text("StreamLab decides who speaks, to whom and when. Apple's on-device model, when available, rewords lines that are already scheduled and adds a few fresh everyday messages; StreamLab picks who posts them and checks every line. The offline library always keeps chat going. No API key or usage charges.").font(.caption).foregroundStyle(.secondary)
                     NavigationLink("Diagnostics") { DiagnosticsView(store: store) }
                     LabeledContent("Cloud", value: "Not connected")
                     Text("Cloud mode is planned for a later update. This version never uploads your camera frames.").font(.caption).foregroundStyle(.secondary)
