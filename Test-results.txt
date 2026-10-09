@@ -1,0 +1,68 @@
+StreamLab 6.0 — engine checks (Tests/main.swift via test-engine.sh)
+Run in GitHub Actions on commit 312f538, twice:
+  - Linux, Swift 6.1 (swift:6.1-noble container)
+  - macOS, Xcode 26.6 toolchain
+Result on both: Final: 742 checks passed
+
+Host replies, 40 different host questions (fixed seeds):
+  n=82 replies; fastest 2.5 s; median 6.2 s; 90th percentile 11.2 s; 2 of 40 questions got no reply.
+  No reply or moment reaction was posted within 1 s of its cause (sameUpdateReplies = 0).
+
+One hour without the on-device model (offline library only), 24 msg/min setting:
+  seed 42  (scene changes every 10 min): 839 messages, last at 3588 s, longest silence 25 s, repeated long lines 0
+  seed 100 (scene changes every 10 min): 914 messages, last at 3600 s, longest silence 30 s, repeated long lines 0
+  seed 4242 (Auto for the whole hour):  776 messages, last at 3598 s, longest silence 45 s, repeated long lines 0
+  For comparison, v5 under the same conditions: 186 messages, chat stopped at about 7.2–7.4 minutes.
+  Note: when only the library is writing, chat paces itself (here ~13–15 msg/min) so it lasts.
+
+Amounts, 20,000 samples: ~80% $100–$200, ~17% $10–$99, ~3% $201–$900 (unchanged);
+round amounts may now repeat, other amounts never repeat within the last ten.
+
+What these checks do NOT cover: real Apple Intelligence output, camera, performance,
+heat and battery on an iPhone. Those need the owner's phone.
+
+------------------------------------------------------------------------------
+Sample transcripts (same seeds and actions; seconds from start). Full output is in the CI log.
+
+=== v6: Host asks a choice question ===
+  20.0  [HOST] nightshift: Tea or coffee?
+  22.0  riley_fern ↳finch_xo: popcorn                        (another viewer's snack question, still going)
+  24.2  moth_xo ↳finch_xo: cheese straight from the fridge
+  24.8  pixelOwl19 ↳nightshift: tea always
+  25.0  riley_fern ↳nightshift: coffee, easy
+  27.8  frostsage18: what are you drinking?
+  29.2  finch_xo: city person or small town person
+  35.5  frosttune81 ↳riley_drift: green tea
+  36.8  kai_fern ↳maplemoth67: wrong lol
+
+=== v5: Host asks a choice question ===
+  20.0  [HOST] nightshift: Tea or coffee?
+  22.8  maple_raven98: I'd pick a quiet evening over a big night out.
+  25.2  violetotter62 ↳maple_raven98: Depends on the week for me.
+  27.5  peachQuest33 ↳violetotter62: Sometimes you just want your own sofa.
+  31.5  chillcat96: Headphones finally untangled.
+  34.2  aqua.kiwi68 ↳chillcat96: They'll be tangled again tomorrow.
+  35.8  indie_cat93 ↳aqua.kiwi68: It's their natural state.
+  (no reply to the host's question; every exchange is a fixed three-line chain, new nickname each line)
+
+=== v6: Manual Win at 15 s, Fail at 50 s (gaming) ===
+  19.2  mintFern11: ayyy
+  20.2  luckypine1: gg wp
+  21.5  sam_tiger: huge W
+  23.0  solarFrog51: about time, nice job
+  30.0  mocha.cat12: wait did that actually work
+  53.5  urban.quest36: rip lol
+  54.2  ocean_cat: classic
+
+=== v5: Manual Win at 15 s, Fail at 50 s ===
+  15.0  softMoth8: That's the one.                (same moment as the button press)
+  18.5  mapleMango0 ↳softMoth8: Glad I caught the finish.
+  21.8  riley_comet ↳mapleMango0: Nice work sticking with it.
+  50.0  softpanda48: Ah, unlucky.                 (same moment as the button press)
+  52.5  lucky.otter39 ↳softpanda48: Take a second before the next one.
+
+=== v6: Tip at 10 s, host thanks at 18 s ===
+  10.0  rainy_cat59: $175 · for the chats
+  13.5  nova_pine92 ↳rainy_cat59: kind
+  18.0  [HOST] nightshift: Thank you, @rainy_cat59!
+  24.8  rainy_cat59 ↳nightshift: glad to             (same person who tipped, 6.8 s later)
