@@ -535,6 +535,7 @@ for _ in 0..<160 { advance(&opening, seconds: 3); openingSamples.append(opening.
 let openingChat = viewerMessages(opening, after: openedAt).count
 check(openingSamples[4] < 150, "Viewers arrive gradually: still few after 15 seconds (\(openingSamples[4]))")
 check(openingSamples[19] < 900, "No sudden jump: under 900 after a minute (\(openingSamples[19]))")
+check(openingSamples.prefix(20).allSatisfy { $0 >= openingStart }, "Right after Go live the count never dips below where it opened")
 let biggestStep = zip(openingSamples, openingSamples.dropFirst()).map { $1 - $0 }.max() ?? 0
 check(biggestStep <= 60, "The count climbs in small steps (largest step \(biggestStep) in 3 s)")
 // The first two minutes are always within the first half of the 4–7 minute ramp, where it climbs.

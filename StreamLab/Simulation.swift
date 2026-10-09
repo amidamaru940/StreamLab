@@ -1285,6 +1285,7 @@ struct Simulation {
         viewerDrift = viewerDrift * 0.97 + random.gaussian() * 8
         viewerBump *= 0.985
         let target: Double
+        var jitter = 2.0
         if viewersSettled || elapsed >= rampDuration {
             target = min(Double(high - 3), max(Double(low + 3), viewerLevel + viewerDrift + viewerBump))
         } else {
@@ -1292,9 +1293,12 @@ struct Simulation {
             let p = min(1, elapsed / max(1, rampDuration))
             let eased = p * p * (3 - 2 * p)
             target = min(Double(high), max(0, rampFrom + (viewerLevel - rampFrom) * eased + viewerDrift * eased + viewerBump))
+            jitter = 2 * max(0.15, eased)
         }
-        let next = Double(viewers) + (target - Double(viewers)) * 0.3 + random.gaussian() * 2
+        let next = Double(viewers) + (target - Double(viewers)) * 0.3 + random.gaussian() * jitter
         viewers = Int(next.rounded())
+        // While the room fills up it never shows fewer viewers than it opened with or than people chatting.
+        if !viewersSettled && elapsed < rampDuration { viewers = max(viewers, Int(rampFrom), audience.presentCount) }
         // After the ramp the target is inside the band, so a count that lags behind climbs in on its own
         // instead of jumping to 1,500 in one step.
         if !viewersSettled && elapsed >= rampDuration && viewers >= low { viewersSettled = true }
