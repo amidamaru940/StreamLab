@@ -1,41 +1,55 @@
 StreamLab 6.0 — engine checks (Tests/main.swift via test-engine.sh)
-Run in GitHub Actions on commit 312f538, twice:
+Commit 005b85d, GitHub Actions CI run 19, run twice:
   - Linux, Swift 6.1 (swift:6.1-noble container)
   - macOS, Xcode 26.6 toolchain
-Result on both: Final: 742 checks passed
+Result on both: Final: 772 checks passed
 
-Host replies, 40 different host questions (fixed seeds):
-  n=82 replies; fastest 2.5 s; median 6.2 s; 90th percentile 11.2 s; 2 of 40 questions got no reply.
-  No reply or moment reaction was posted within 1 s of its cause (sameUpdateReplies = 0).
+Host replies — 40 different host questions, one per fixed seed (Tests/main.swift, hostQuestions):
+  CI run 19 (macOS): n=70 replies; fastest 2.0 s; median 6.0 s; 90th percentile 11.8 s; 5 of 40 questions got no reply.
+  No two viewers answered one question with the same words. Nothing that answers something
+  was posted within 1 s of what it answers (sameUpdateReplies = 0 in every run).
 
-One hour without the on-device model (offline library only), 24 msg/min setting:
-  seed 42  (scene changes every 10 min): 839 messages, last at 3588 s, longest silence 25 s, repeated long lines 0
-  seed 100 (scene changes every 10 min): 914 messages, last at 3600 s, longest silence 30 s, repeated long lines 0
-  seed 4242 (Auto for the whole hour):  776 messages, last at 3598 s, longest silence 45 s, repeated long lines 0
-  For comparison, v5 under the same conditions: 186 messages, chat stopped at about 7.2–7.4 minutes.
-  Note: when only the library is writing, chat paces itself (here ~13–15 msg/min) so it lasts.
+One hour without the on-device model (offline library only), chat pace setting 24 msg/min:
+  seed 42  (scene changes every 10 min): 717 messages, last at 3597 s, longest silence 28 s, repeated long lines 0
+  seed 100 (scene changes every 10 min): 796 messages, last at 3587 s, longest silence 36 s, repeated long lines 0
+  seed 4242 (Auto for the whole hour):  686 messages, last at 3592 s, longest silence 34 s, repeated long lines 0
+  The offline library paces itself (about 11–14 messages/min here) so it lasts the hour.
+  For context, the v5 measurement from the handover (Auto only, 24 msg/min, no model): 186 messages,
+  last at about 7.2–7.4 minutes. That number comes from docs/Test-results-v5 / Research-v6 and was not re-run here.
 
 Amounts, 20,000 samples: ~80% $100–$200, ~17% $10–$99, ~3% $201–$900 (unchanged);
-round amounts may now repeat, other amounts never repeat within the last ten.
+amounts that are multiples of $50 may repeat, other amounts never repeat within the last ten.
 
-What these checks do NOT cover: real Apple Intelligence output, camera, performance,
+What these checks do NOT cover: real Apple Intelligence output, camera hardware, performance,
 heat and battery on an iPhone. Those need the owner's phone.
 
 ------------------------------------------------------------------------------
-Sample transcripts (same seeds and actions; seconds from start). Full output is in the CI log.
+Sample transcripts, copied verbatim from the CI run 19 log (seconds from the start of each scene;
+"↳name" means the line replies to that person). The same seeds and actions were run on the v5 engine
+(Tests/v5/main.swift, sources from commit 1291a07); its output is printed in the same log.
 
 === v6: Host asks a choice question ===
+   4.0  luckyBean41: how long are you streaming today?
+   8.8  silent_spark ↳ocean.rider31: ha!
+  15.2  kai_fern ↳ocean.rider31: honestly yeah
+  15.5  maplemoth67: mine was folding clothes at a store
   20.0  [HOST] nightshift: Tea or coffee?
-  22.0  riley_fern ↳finch_xo: popcorn                        (another viewer's snack question, still going)
-  24.2  moth_xo ↳finch_xo: cheese straight from the fridge
+  21.8  ocean.rider31: pineapple on pizza or no pineapple?
   24.8  pixelOwl19 ↳nightshift: tea always
-  25.0  riley_fern ↳nightshift: coffee, easy
-  27.8  frostsage18: what are you drinking?
-  29.2  finch_xo: city person or small town person
-  35.5  frosttune81 ↳riley_drift: green tea
-  36.8  kai_fern ↳maplemoth67: wrong lol
+  25.0  moth_xo: if you could have one superpower what would it be
+  25.2  riley_fern ↳nightshift: coffee, easy
+  33.0  frosttune81 ↳maplemoth67: babysitting
+  36.2  ollie_frog ↳moth_xo: flying, obviously
+  42.2  silent.bloom1 ↳moth_xo: super speed but only for chores
+  43.2  loficat13: I finally replied to a message from yesterday.
+  43.8  moth_xo: i'd want to breathe underwater
+  55.5  ocean.rider31: I think my plant needs a bigger pot.
+  61.8  lunar.frog7 ↳loficat13: That's practically instant by my standards.
+  70.0  soft.haven2 ↳ocean.rider31: mine needs me to remember it exists
+  73.5  aquaTide17: how long have you been streaming?
 
 === v5: Host asks a choice question ===
+  19.5  copper.kite76: I prefer a conversation without a strict plan.
   20.0  [HOST] nightshift: Tea or coffee?
   22.8  maple_raven98: I'd pick a quiet evening over a big night out.
   25.2  violetotter62 ↳maple_raven98: Depends on the week for me.
@@ -43,26 +57,33 @@ Sample transcripts (same seeds and actions; seconds from start). Full output is 
   31.5  chillcat96: Headphones finally untangled.
   34.2  aqua.kiwi68 ↳chillcat96: They'll be tangled again tomorrow.
   35.8  indie_cat93 ↳aqua.kiwi68: It's their natural state.
-  (no reply to the host's question; every exchange is a fixed three-line chain, new nickname each line)
+  (v5 lines before 19.5 s and after 36 s omitted; nobody in v5 answers the host's question)
 
-=== v6: Manual Win at 15 s, Fail at 50 s (gaming) ===
-  19.2  mintFern11: ayyy
-  20.2  luckypine1: gg wp
-  21.5  sam_tiger: huge W
-  23.0  solarFrog51: about time, nice job
-  30.0  mocha.cat12: wait did that actually work
-  53.5  urban.quest36: rip lol
-  54.2  ocean_cat: classic
-
-=== v5: Manual Win at 15 s, Fail at 50 s ===
-  15.0  softMoth8: That's the one.                (same moment as the button press)
-  18.5  mapleMango0 ↳softMoth8: Glad I caught the finish.
-  21.8  riley_comet ↳mapleMango0: Nice work sticking with it.
-  50.0  softpanda48: Ah, unlucky.                 (same moment as the button press)
-  52.5  lucky.otter39 ↳softpanda48: Take a second before the next one.
+=== v6: Host asks an open question, then greets chat ===
+  10.0  [HOST] nightshift: What should I make for dinner tonight?
+  11.8  alex_ghost ↳crystal.atlas49: dogs every single time
+  16.5  amber_mango73 ↳nightshift: rice and beans
+  20.5  lunar.mango68: I had a whole story to tell and forgot the ending.
+  27.2  crystal.atlas49: ok dogs it is
+  31.2  soft_tune: which season is yours
+  34.2  cozyWolf62: back from work, hi all
+  43.2  leaf_zz ↳soft_tune: spring, everything smells nice
+  45.5  lunarRaven21 ↳soft_tune: summer, i hate being cold
+  46.8  kai_spark ↳soft_tune: summer nights specifically
+  53.5  soft_tune: i change my answer every year honestly
+  60.0  [HOST] nightshift: hi chat, how are you all doing?
+  65.5  peach.cat57 ↳nightshift: doing alright
+  66.0  alex_ghost ↳nightshift: hungry lol
+  68.2  mellowotter41 ↳nightshift: tired but good
+  68.5  pixel_dream: what was your first job
+  70.8  amber_mango73 ↳nightshift: not bad, how about you?
+  (lines before 10 s and after 70.8 s omitted)
 
 === v6: Tip at 10 s, host thanks at 18 s ===
-  10.0  rainy_cat59: $175 · for the chats
-  13.5  nova_pine92 ↳rainy_cat59: kind
-  18.0  [HOST] nightshift: Thank you, @rainy_cat59!
-  24.8  rainy_cat59 ↳nightshift: glad to             (same person who tipped, 6.8 s later)
+   3.8  nova_pine92: What's a hobby you keep meaning to try?
+  10.0  cloudLens0: $125 tip
+  13.2  novapine84 ↳nova_pine92: pottery
+  16.8  leo_owl60: what did you watch as a kid
+  18.0  [HOST] nightshift: Thank you, @cloudLens0!
+  25.5  cloudLens0 ↳nightshift: np!
+  32.2  ghost_jr ↳leo_owl60: whatever my older brother picked

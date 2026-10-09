@@ -1,7 +1,7 @@
 StreamLab 6.0 (6) — 2026-10-09
 Where: GitHub Actions, macos-latest runner (workflow .github/workflows/ci.yml, job "iOS build")
 Xcode 26.6 / Build version 17F113
-SDK: iPhoneOS 26.5 (newest SDK available on the runner; iOS 27 SDK not available there)
+SDK: iPhoneOS 26.5 (newest SDK on the runner; Xcode 27 / iOS 27 SDK is not available there)
 Target: generic iOS device (arm64), deployment iOS 17.0, unsigned Debug
 
 Command:
@@ -9,8 +9,9 @@ xcodebuild -project StreamLab.xcodeproj -scheme StreamLab -configuration Debug \
   -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
   OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=400' build
 
-Result on commit 312f538: ** BUILD SUCCEEDED ** (no compiler errors, no slow type-check warnings)
-Every later push is built the same way; see the Actions tab of the repository for the latest run.
+Result on commit 005b85d (CI run 19): ** BUILD SUCCEEDED ** — no compiler errors, no slow type-check warnings.
+Every push is built the same way; see the repository's Actions tab for later commits.
 
 The FoundationModels code (LocalChatWriter) is compiled against the iOS 26.5 SDK.
-NOT done here: code signing, installation on an iPhone, running on a device or simulator.
+NOT done: a build with Xcode 27 / iOS 27 SDK, code signing, installation on an iPhone,
+running on a device or simulator.
