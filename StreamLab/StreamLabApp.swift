@@ -590,8 +590,8 @@ struct SettingsView: View {
                     Text("Optional scripted moments run every 50 seconds. Leave this off when following your real camera.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Audience") {
-                    Picker("Room size", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.rawValue).tag($0) } }
-                    Text("Chat activity changes right away; the starting number of viewers applies from the next stream. A small room is calmer, a large one busier.").font(.caption).foregroundStyle(.secondary)
+                    Picker("Room mood", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.title).tag($0) } }
+                    Text("A stream opens with a few viewers; more arrive over the first few minutes and the count then stays between about 1,500 and 1,870. Room mood only changes how busy the chat is.").font(.caption).foregroundStyle(.secondary)
                     Text("Chat pace · about \(Int(settings.messagesPerMinute))/min")
                     Slider(value: $settings.messagesPerMinute, in: 2...90, step: 1)
                     Text("Mixed voices are automatic: casual chat, questions, humour, support and occasional disagreement. Recent wording is checked for close repeats.").font(.caption).foregroundStyle(.secondary)

@@ -87,12 +87,13 @@ enum Scenario: String, CaseIterable, Codable, Identifiable {
         }
     }
 }
-/// A7: how big the room is. Viewers, active chatters and chat speed follow from it.
+/// A7: how lively the room is. Since 6.1 the viewer count itself always settles between about
+/// 1,500 and 1,872 (owner's request); this setting only changes how busy the chat is.
+/// Raw values stay as they were so saved settings keep decoding.
 enum AudienceSize: String, CaseIterable, Codable, Identifiable {
     case small = "Small room", medium = "Medium", large = "Large"
     var id: String { rawValue }
-    /// Median starting viewers and the spread around it.
-    var startMedian: Double { self == .small ? 110 : self == .medium ? 700 : 4200 }
+    var title: String { self == .small ? "Calm" : self == .medium ? "Normal" : "Busy" }
     var activityScale: Double { self == .small ? 0.55 : self == .medium ? 1 : 1.25 }
 }
 struct Settings: Codable {
@@ -271,12 +272,16 @@ struct Simulation {
     private var lastMomentFromCamera = false
     private var lastCameraEvent: StreamEvent?
     private var breakStartedAt = -1000.0, lastFaceAwayAt = -1000.0
-    private var baseViewers = 0
+    /// Viewer count: small at Go live, climbs over a few minutes, then wanders inside `viewerBand`.
+    private var viewerLevel = 1690.0, viewerDrift = 0.0, viewerBump = 0.0
+    private var rampFrom = 0.0, rampDuration = 300.0
+    private(set) var viewersSettled = false
+    private var warmingUp = false
     private var sceneCommented: [VisualScene: Double] = [:]
     private var manualOverrideUntil = -1000.0, cameraEventUntil = -1000.0
     private var cameraContextActive = false
     private var eventEpoch = 0
-    private var step = 0, audienceTarget: Int
+    private var step = 0
     private var budget = 0.0, pace = 1.0
     private var idleSince: Double?
     private var topicUse: [String: TopicUse] = [:]
@@ -313,18 +318,30 @@ struct Simulation {
     /// E6: when only the offline library is writing, chat paces itself so it lasts instead of running dry.
     private(set) var libraryRateCap: Double = .infinity
 
-    init(settings: Settings = Settings(), seed: UInt64 = UInt64.random(in: 0...UInt64.max), community: [Participant]? = nil) {
+    /// The viewer range the owner asked for (6.1): after the opening minutes the count stays inside it.
+    static let viewerBand = 1500...1872
+
+    /// `openingRamp` false starts with the room already full (used by checks of mid-stream behaviour).
+    init(settings: Settings = Settings(), seed: UInt64 = UInt64.random(in: 0...UInt64.max), community: [Participant]? = nil, openingRamp: Bool = true) {
         self.settings = settings; self.settings.normalize()
         var random = StreamRandom(state: seed)
         audience = Audience(restoring: community, using: &random)
-        // A7: the room does not always open at the same size.
-        let start = Int(self.settings.audienceSize.startMedian * random.logNormal(sigma: 0.5))
-        viewers = min(11000, max(25, start)); audienceTarget = viewers; baseViewers = viewers
+        // The level the room settles at differs per stream; drift around it stays inside the band.
+        viewerLevel = 1590 + random.unit() * 200
+        if openingRamp {
+            // A7: a stream opens with a handful of viewers; people arrive over the next 4–7 minutes.
+            viewers = random.index(6); rampFrom = Double(viewers); rampDuration = 240 + random.unit() * 180
+        } else {
+            viewers = Int(viewerLevel); rampFrom = viewerLevel; rampDuration = 0; viewersSettled = true
+        }
         self.random = random
         audience.seat(chatterTarget, now: 0, using: &self.random)
         scheduleDonation()
-        // Warm-up: the room was already talking before the host looked at it. Nothing in the warm-up reacts to the host.
+        // Warm-up: the room was already talking before the host looked at it. Nothing in the warm-up reacts to the host,
+        // and the viewer count does not move before the stream starts.
+        warmingUp = true
         for _ in 0..<160 { advance(0.25) }
+        warmingUp = false
         elapsed = 0; donationClock = 0; scenarioClock = 0
     }
 
@@ -434,8 +451,9 @@ struct Simulation {
         if fromCamera { lastCameraEvent = event }
         context = event; contextClock = 0
         switch event {
-        case .win: audienceTarget += max(2, audienceTarget / 40) + random.index(max(3, audienceTarget / 25))
-        case .breakTime: audienceTarget = max(15, audienceTarget - max(3, audienceTarget / 12)); breakActive = true; breakStartedAt = now
+        // A good moment brings a few people in, a break sends some away; both fade and never leave the band.
+        case .win: viewerBump += viewerScale * (15 + random.unit() * 35)
+        case .breakTime: viewerBump -= viewerScale * (40 + random.unit() * 60); breakActive = true; breakStartedAt = now
         case .returnLive: breakActive = false
         // Any other moment the host marks means they are back at the stream.
         default: if !fromCamera { breakActive = false }
@@ -1250,11 +1268,28 @@ struct Simulation {
 
     // MARK: Audience dynamics
 
+    /// Event effects are smaller while the room is still filling up.
+    private var viewerScale: Double { viewersSettled ? 1 : max(0.05, Double(viewers) / viewerLevel) }
+
     private mutating func updateViewers() {
-        // Drifts around the room's usual size instead of wandering off to an extreme.
-        let pull = Double(baseViewers - audienceTarget) * 0.02
-        audienceTarget = min(12000, max(15, audienceTarget + Int((pull + random.gaussian() * Double(max(1, baseViewers)).squareRoot() * 0.12).rounded())))
-        viewers = max(1, viewers + (audienceTarget - viewers) / 12 + random.index(7) - 3)
+        // Before Go live (and in the warm-up) nobody is watching yet: the count holds still.
+        guard !warmingUp, phase == .live else { return }
+        let low = Self.viewerBand.lowerBound, high = Self.viewerBand.upperBound
+        viewerDrift = viewerDrift * 0.97 + random.gaussian() * 8
+        viewerBump *= 0.985
+        let target: Double
+        if viewersSettled {
+            target = min(Double(high - 3), max(Double(low + 3), viewerLevel + viewerDrift + viewerBump))
+        } else {
+            // People trickle in: a slow start, a steady climb, then it levels off.
+            let p = min(1, elapsed / max(1, rampDuration))
+            let eased = p * p * (3 - 2 * p)
+            target = min(Double(high), max(0, rampFrom + (viewerLevel - rampFrom) * eased + viewerDrift * eased + viewerBump))
+        }
+        let next = Double(viewers) + (target - Double(viewers)) * 0.3 + random.gaussian() * 2
+        viewers = Int(next.rounded())
+        if !viewersSettled && elapsed >= rampDuration && (viewers >= low || elapsed >= rampDuration + 60) { viewersSettled = true }
+        viewers = viewersSettled ? min(high, max(low, viewers)) : min(high, max(0, viewers))
         if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }
     private mutating func updatePresence() {

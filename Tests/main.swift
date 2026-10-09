@@ -19,7 +19,7 @@ func viewerMessages(_ sim: Simulation, after time: Double) -> [ChatMessage] {
 var quiet = Settings(); quiet.donationsPerMinute = 0; quiet.localWriting = false
 
 // MARK: Basics and pause
-var sim = Simulation(settings: quiet, seed: 42)
+var sim = Simulation(settings: quiet, seed: 42, openingRamp: false)
 check(!sim.messages.isEmpty && sim.activeScenario == .cozy, "Automatic scene starts with a room already talking, without inventing camera activity")
 check(Scenario.allCases.count == 8, "Eight scenarios including automatic selection")
 check(sim.presentChatters >= 4 && sim.presentChatters <= 45, "Active chatters follow the viewer count")
@@ -33,7 +33,7 @@ check(!winReactions.isEmpty && winReactions.allSatisfy { $0.postedAt - winAt >= 
 // A quick burst of "gg" is normal; across many streams reactions still spread over several seconds.
 var spreads: [Double] = []
 for seed: UInt64 in 900..<920 {
-    var s = Simulation(settings: quiet, seed: seed)
+    var s = Simulation(settings: quiet, seed: seed, openingRamp: false)
     s.trigger(.win); let at = s.now
     advance(&s, seconds: 25)
     let times = s.messages.filter { $0.source == .eventReaction && $0.postedAt > at }.map(\.postedAt)
@@ -58,7 +58,7 @@ let invalidClock = sim.elapsed; sim.tick(.nan); sim.tick(-1); sim.tick(.infinity
 check(sim.elapsed == invalidClock, "Invalid time values are ignored")
 
 // MARK: Gift banners and queue
-var queue = Simulation(settings: quiet, seed: 6)
+var queue = Simulation(settings: quiet, seed: 6, openingRamp: false)
 queue.donate(); let first = queue.donation!.id; let duration = queue.donation!.displayDuration
 check(duration >= 7 && duration <= 11.5, "Default notifications are longer than v4")
 queue.donate(); let second = queue.donationQueue[0].id
@@ -71,10 +71,10 @@ check(queue.donation?.id == second, "Arriving during the gap cannot jump the FIF
 for _ in 0..<20 { queue.donate() }
 let totalAtCapacity = queue.total
 check(queue.donationQueue.count == 12 && !queue.donate() && queue.total == totalAtCapacity, "Queue has backpressure without false totals")
-let slow = Simulation(seed: 72)
+let slow = Simulation(seed: 72, openingRamp: false)
 check(slow.nextDonation >= 52 && slow.nextDonation <= 96, "Default tips keep the slightly slower irregular timing")
 var fixed = quiet; fixed.minAmount = 500; fixed.maxAmount = 500; fixed.tipDuration = 9
-var fixedSim = Simulation(settings: fixed, seed: 1); fixedSim.donate()
+var fixedSim = Simulation(settings: fixed, seed: 1, openingRamp: false); fixedSim.donate()
 check(fixedSim.donation?.amount == 500 && fixedSim.donation!.displayDuration >= 10, "Custom amount and notification time apply")
 
 // MARK: Text memory and content
@@ -106,7 +106,7 @@ for event in StreamEvent.allCases {
 print("Authored lines: \(allLines.count) across \(topics.count) topics")
 
 // MARK: Host question: delayed, addressed, partial, parallel
-var talk = Simulation(settings: quiet, seed: 2024)
+var talk = Simulation(settings: quiet, seed: 2024, openingRamp: false)
 advance(&talk, seconds: 10)
 let countBefore = talk.messages.count
 talk.send("Tea or coffee?")
@@ -137,7 +137,7 @@ var delays: [Double] = []
 var duplicateReplies = 0
 var unanswered = 0
 for seed in 0..<40 {
-    var s = Simulation(settings: quiet, seed: UInt64(5000 + seed))
+    var s = Simulation(settings: quiet, seed: UInt64(5000 + seed), openingRamp: false)
     advance(&s, seconds: 5)
     s.send(hostQuestions[seed]); let at = s.now
     advance(&s, seconds: 60)
@@ -155,7 +155,7 @@ check(unanswered <= 10, "Most questions get some answer, a few do not")
 check(duplicateReplies == 0, "Two people never answer the same question with the same words")
 
 // MARK: Viewer topics keep authors and addressees
-var topicSim = Simulation(settings: quiet, seed: 77)
+var topicSim = Simulation(settings: quiet, seed: 77, openingRamp: false)
 advance(&topicSim, seconds: 240)
 let byID = Dictionary(topicSim.messages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 let answers = topicSim.messages.filter { $0.source == .topicAnswer }
@@ -173,7 +173,7 @@ check(followUps.allSatisfy { f in topicSim.messages.contains { $0.source == .top
 _ = byID
 
 // MARK: Moments: stale reactions are cancelled
-var moments = Simulation(settings: quiet, seed: 9)
+var moments = Simulation(settings: quiet, seed: 9, openingRamp: false)
 advance(&moments, seconds: 5)
 moments.trigger(.win)
 let pendingWin = moments.pending.filter { $0.source == .eventReaction }.count
@@ -187,7 +187,7 @@ check(!afterSwitch.contains { winOnly.contains($0.text) }, "Reactions to a repla
 check((moments.metrics.dropped[.staleContext] ?? 0) - droppedBefore == pendingWin, "Every queued reaction to the replaced moment is cancelled")
 var cameraTotal = 0, cameraOK = true
 for seed: UInt64 in 10..<20 {
-    var camera = Simulation(settings: quiet, seed: seed)
+    var camera = Simulation(settings: quiet, seed: seed, openingRamp: false)
     camera.reactToCamera(.movement)
     let movementAt = camera.now
     advance(&camera, seconds: 20)
@@ -197,7 +197,7 @@ for seed: UInt64 in 10..<20 {
 }
 check(cameraOK && cameraTotal > 0, "Camera cues get at most two later reactions, and sometimes none")
 // The host coming back cancels "where did you go" reactions still waiting (review finding F13).
-var away = Simulation(settings: quiet, seed: 33)
+var away = Simulation(settings: quiet, seed: 33, openingRamp: false)
 away.reactToCamera(.faceAway)
 advance(&away, seconds: 6)
 let awayPending = away.pending.filter { $0.source == .eventReaction }.count
@@ -206,10 +206,10 @@ let backAt = away.now
 advance(&away, seconds: 25)
 let awayLines = Set((ChatContent.events["Face out of frame"] ?? []) + (ChatContent.events["Face out of frame.quick"] ?? []))
 check(!away.messages.contains { $0.postedAt > backAt && awayLines.contains($0.text) } && (awayPending == 0 || (away.metrics.dropped[.staleContext] ?? 0) > 0), "Nobody asks where the host went after they are back")
-var noAway = Simulation(settings: quiet, seed: 34)
+var noAway = Simulation(settings: quiet, seed: 34, openingRamp: false)
 check(!noAway.reactToCamera(.faceBack), "A face appearing without having left is not a return")
 // Breaks end when the host is back (review finding F1).
-var pause = Simulation(settings: quiet, seed: 35)
+var pause = Simulation(settings: quiet, seed: 35, openingRamp: false)
 pause.trigger(.breakTime); check(pause.breakActive, "BRB starts a break")
 pause.send("ok i'm back"); check(!pause.breakActive, "Typing that you are back ends the break")
 pause.trigger(.breakTime); pause.trigger(.laugh); check(!pause.breakActive, "Any other moment the host marks ends the break")
@@ -236,7 +236,7 @@ check(HostIntent.choice(in: "coffee or tea in the morning?")! == ("coffee", "tea
 check(kindOf("can you hear me?") == .yesNoQuestion(.check) && kindOf("anyone here?") == .yesNoQuestion(.presence) && kindOf("should I stream tomorrow?") == .yesNoQuestion(.advice), "Yes/no questions are told apart by form")
 check(kindOf("lol") == .statement(.filler) && kindOf("I think pineapple is fine on pizza") == .statement(.opinion) && kindOf("welcome @lunar_fox") == .statement(.welcome) && kindOf("brb") == .statement(.event), "Statements are told apart: filler, opinion, welcome, event")
 check(kindOf("how are we feeling about this boss?") == .openQuestion && kindOf("how is everyone doing?") == .howAreYou, "How-are-you needs the actual phrase")
-var words = Simulation(settings: quiet, seed: 91)
+var words = Simulation(settings: quiet, seed: 91, openingRamp: false)
 words.send("wonderful evening"); check(words.context == nil, "Wonderful does not trigger Win")
 words.send("I haven't won yet"); check(words.context == nil, "Negated victory is not a win")
 words.send("I won't give up"); check(words.context != .win, "Contraction won't does not become a Win event")
@@ -250,7 +250,7 @@ for _ in 0..<200 { words.send("hello") }
 check(words.messages.count == 160 && words.pending.count <= 60, "Host messages cannot grow chat or the queue without bound")
 words.send(String(repeating: "x", count: 300)); check(words.messages.last?.text.count == 200, "Host input length capped")
 let beforeEmpty = words.messages.last?.id; words.send("  \n "); check(words.messages.last?.id == beforeEmpty, "Blank host input ignored")
-var foreign = Simulation(settings: quiet, seed: 31)
+var foreign = Simulation(settings: quiet, seed: 31, openingRamp: false)
 let foreignAt = foreign.now
 foreign.send("Привет всем, как дела?")
 advance(&foreign, seconds: 40)
@@ -258,7 +258,7 @@ check(foreign.messages.filter { $0.source == .hostReply && $0.postedAt > foreign
 check(!viewerMessages(foreign, after: foreignAt).isEmpty, "Chat keeps running after non-English input")
 
 // MARK: Camera scenes
-var live = Simulation(settings: quiet, seed: 18)
+var live = Simulation(settings: quiet, seed: 18, openingRamp: false)
 live.observeScene(.food)
 check(live.context == .food && live.activeScenario == .cozy, "A food hint is a moment, not an instant scene change")
 for _ in 0..<16 { advance(&live, seconds: 3); live.observeScene(.food) }
@@ -271,9 +271,9 @@ var off = live.settings; off.cameraReactions = false; live.apply(off)
 check(live.context == nil && live.visualScene == nil && live.activeScenario == .cozy, "Disabling camera clears its cue and scene")
 live.observeScene(.pet); check(live.visualScene == nil, "Disabled camera classification cannot change scenario")
 var selected = quiet; selected.scenario = .gaming
-var fixedScene = Simulation(settings: selected, seed: 18); fixedScene.observeScene(.food)
+var fixedScene = Simulation(settings: selected, seed: 18, openingRamp: false); fixedScene.observeScene(.food)
 check(fixedScene.activeScenario == .gaming, "Explicit scenario remains selected despite automatic visual hints")
-var mug = Simulation(settings: quiet, seed: 19)
+var mug = Simulation(settings: quiet, seed: 19, openingRamp: false)
 var foodComments = 0
 for _ in 0..<100 {
     let before = mug.now
@@ -303,7 +303,7 @@ check(flickerEvents.isEmpty, "Brief visual flicker is filtered")
 
 // MARK: On-device writer contract
 var writerSettings = quiet; writerSettings.localWriting = true
-var written = Simulation(settings: writerSettings, seed: 333)
+var written = Simulation(settings: writerSettings, seed: 333, openingRamp: false)
 var request: WritingRequest? = nil
 for question in ["What should I cook this weekend?", "What are you all drinking tonight?", "What's everyone snacking on?", "What music are you listening to lately?", "Where would you travel next?", "What's your comfort food?"] where request?.slots.isEmpty ?? true {
     written.send(question)
@@ -338,7 +338,7 @@ written.pause()
 check(written.acceptWriting(WritingResult(slotTexts: [:], ambient: ["should not arrive during a pause"]), for: titledRequest!) == 0, "Paused stream rejects in-flight generated content")
 written.resume()
 // Old results cannot leak into a new scene or a replaced moment (v5 check, restored).
-var stale = Simulation(settings: writerSettings, seed: 444)
+var stale = Simulation(settings: writerSettings, seed: 444, openingRamp: false)
 stale.trigger(.win)
 let eventRequest = stale.makeWritingRequest()
 stale.trigger(.fail)
@@ -354,7 +354,7 @@ check(!Simulation.acceptableModelLine("привет всем", maxLength: 60) &&
 // The model itself does not run here: these checks feed the engine what a model would return.
 func modelOnlyRun(seed: UInt64) -> (Simulation, UUID, [PlannedMessage])? {
     for question in ["What did you get up to today?", "Anyone have a weird hobby?", "What's something you learned recently?", "What are you looking forward to this week?"] {
-        var s = Simulation(settings: writerSettings, seed: seed); s.setModelActive(true)
+        var s = Simulation(settings: writerSettings, seed: seed, openingRamp: false); s.setModelActive(true)
         s.send(question)
         guard let hostID = s.messages.last?.id else { continue }
         let planned = s.pending.filter { $0.requiresModel && $0.replyToMessage == hostID }
@@ -388,11 +388,11 @@ for seed: UInt64 in 610..<640 {
     }
 }
 check(modelOnlyFound >= 4, "Open questions without a library answer get extra model-only replies when the model is on")
-var noModel = Simulation(settings: writerSettings, seed: 612)
+var noModel = Simulation(settings: writerSettings, seed: 612, openingRamp: false)
 noModel.send("What did you get up to today?")
 check(!noModel.pending.contains { $0.requiresModel }, "Without the model nothing waits for model text")
 
-var topical = Simulation(settings: writerSettings, seed: 808); topical.setModelActive(true)
+var topical = Simulation(settings: writerSettings, seed: 808, openingRamp: false); topical.setModelActive(true)
 advance(&topical, seconds: 25)
 let topicRequest = topical.makeWritingRequest()
 check(topicRequest?.topicWanted == true, "The model is asked for a new topic now and then")
@@ -412,7 +412,7 @@ let inventedAnswers = topical.messages.filter { m in invented.answers.contains {
 check(inventedAnswers.allSatisfy { $0.participantID != inventedOpener?.participantID && $0.replyTo == inventedOpener?.name }, "Model topic answers come from other viewers, addressed to the asker")
 check(Set(inventedAnswers.compactMap(\.participantID)).count == inventedAnswers.count, "Each model topic answer has its own author")
 
-var remembering = Simulation(settings: writerSettings, seed: 909)
+var remembering = Simulation(settings: writerSettings, seed: 909, openingRamp: false)
 remembering.send("my sister visited today")
 remembering.trigger(.laugh)
 _ = remembering.donate()
@@ -421,7 +421,7 @@ let memoryRequest = remembering.makeWritingRequest()
 let notesSoFar = memoryRequest?.memory ?? []
 check(notesSoFar.contains { $0.hasSuffix("host said: my sister visited today") } && notesSoFar.contains { $0.contains("Laugh") } && notesSoFar.contains { $0.contains("tipped") }, "Stream memory for the model holds what really happened")
 
-var translated = Simulation(settings: writerSettings, seed: 1001)
+var translated = Simulation(settings: writerSettings, seed: 1001, openingRamp: false)
 translated.setTranslationAvailable(true)
 let waitingID = translated.send("Чай или кофе?")
 check(waitingID != nil && !translated.pending.contains { $0.replyToMessage == waitingID }, "Russian host text waits for the on-device translation")
@@ -434,14 +434,14 @@ check(translated.makeWritingRequest()?.memory.contains { $0.hasSuffix("host said
 let repliesBefore = translated.pending.filter { $0.replyToMessage == waitingID }.count
 translated.hostTranslation("Tea or coffee?", for: waitingID!)
 check(translated.pending.filter { $0.replyToMessage == waitingID }.count == repliesBefore, "A translation is applied only once")
-var slowTranslation = Simulation(settings: writerSettings, seed: 1002)
+var slowTranslation = Simulation(settings: writerSettings, seed: 1002, openingRamp: false)
 slowTranslation.setTranslationAvailable(true)
 let slowID = slowTranslation.send("Чай или кофе?")
 advance(&slowTranslation, seconds: 10)
 let fallbackCount = slowTranslation.pending.filter { $0.replyToMessage == slowID }.count + slowTranslation.messages.filter { $0.source == .hostReply }.count
 slowTranslation.hostTranslation("Tea or coffee?", for: slowID!)
 check(slowTranslation.pending.filter { $0.replyToMessage == slowID }.count + slowTranslation.messages.filter { $0.source == .hostReply }.count == fallbackCount, "A translation that arrives too late changes nothing")
-var noPack = Simulation(settings: writerSettings, seed: 1003)
+var noPack = Simulation(settings: writerSettings, seed: 1003, openingRamp: false)
 noPack.setTranslationAvailable(true)
 let noPackID = noPack.send("Привет всем")
 noPack.hostTranslation(nil, for: noPackID!)
@@ -449,7 +449,7 @@ advance(&noPack, seconds: 40)
 check(noPack.messages.filter { $0.source == .hostReply }.count <= 1, "Without a translation, chat reacts as before: rarely and vaguely")
 
 // MARK: Donors are members of the audience
-var tips = Simulation(settings: quiet, seed: 717)
+var tips = Simulation(settings: quiet, seed: 717, openingRamp: false)
 var notes = Set<String>(); var silentTips = 0
 for _ in 0..<300 {
     check(tips.donate(), "Accept next tip")
@@ -464,7 +464,7 @@ let perDonor = tips.audience.people.reduce(0) { $0 + $1.sessionTipTotal }
 check(perDonor == tips.total, "Every dollar is counted once and attributed to one donor")
 check(tips.audience.people.contains { $0.sessionTips >= 2 }, "Some supporters give more than once")
 check(notes.count > 25 && silentTips > 0, "Non-repeating notes; honest message-free tips after exhaustion")
-var thanks = Simulation(settings: quiet, seed: 88)
+var thanks = Simulation(settings: quiet, seed: 88, openingRamp: false)
 thanks.donate()
 let donorID = thanks.donation!.participantID
 advance(&thanks, seconds: 2)
@@ -482,21 +482,21 @@ _ = thanksMessage
 let snapshot = tips.communitySnapshot
 let encoded = try JSONEncoder().encode(snapshot)
 let decoded = try JSONDecoder().decode(CommunitySnapshot.self, from: encoded)
-var returning = Simulation(settings: quiet, seed: 99, community: decoded.people)
+var returning = Simulation(settings: quiet, seed: 99, community: decoded.people, openingRamp: false)
 check(decoded.people.count >= 60 && Set(decoded.people.map(\.name)).isSubset(of: Set(returning.audience.people.map(\.name))), "Community members return in the next session")
 check(returning.audience.people.reduce(0) { $0 + $1.pastTipTotal } == tips.total && returning.total == 0, "Past gifts are remembered as history, not counted again")
 check((try? JSONDecoder().decode(CommunitySnapshot.self, from: Data("{broken".utf8))) == nil, "Corrupt community data is rejected")
-var neverLive = Simulation(settings: quiet, seed: 98, community: decoded.people)
+var neverLive = Simulation(settings: quiet, seed: 98, community: decoded.people, openingRamp: false)
 neverLive.prepare(); advance(&neverLive, seconds: 5)
 let beforeHistory = decoded.people.reduce(0) { $0 + $1.streamsChatted }
 check(neverLive.communitySnapshot.people.reduce(0) { $0 + $1.streamsChatted } == beforeHistory, "Warm-up chatter before Go live adds no history")
 var corrupt = decoded.people[0]; corrupt = Participant(id: 9999, name: "broken_one", avatar: "BO", color: 77, personality: .joker, voice: Voice(casual: .nan, brevity: 5, chattiness: -1, attention: 0, noticeLag: 1e9, readingWordsPerSecond: 0, typingCharactersPerSecond: 0, curiosity: 2, generosity: -3), regular: true)
-let repaired = Simulation(settings: quiet, seed: 97, community: [corrupt]).audience[9999]
+let repaired = Simulation(settings: quiet, seed: 97, community: [corrupt], openingRamp: false).audience[9999]
 check(repaired != nil && (0...5).contains(repaired!.color) && repaired!.voice.typingCharactersPerSecond >= 2 && repaired!.voice.noticeLag <= 6, "Out-of-range stored values are repaired instead of crashing")
 returning.donate(); check(returning.donation != nil, "A session with restored audience runs normally")
 
 // MARK: Stream lifecycle (D2)
-var cycle = Simulation(settings: quiet, seed: 61)
+var cycle = Simulation(settings: quiet, seed: 61, openingRamp: false)
 cycle.prepare()
 let readyCount = cycle.messages.count
 advance(&cycle, seconds: 20); cycle.send("hello?"); cycle.togglePause()
@@ -509,6 +509,49 @@ advance(&cycle, seconds: 30); cycle.togglePause(); cycle.goLive()
 check(cycle.phase == .ended && !cycle.running && cycle.pending.isEmpty && cycle.messages.count == endedCount, "Ending stops chat and cancels queued replies")
 let summary = cycle.summary
 check(summary.total == cycle.total && summary.gifts == 1 && summary.duration == 30 && summary.peakViewers >= cycle.viewers && summary.topSupporters.count == 1, "Summary matches what happened")
+
+// MARK: Viewer count: opens small, fills up over minutes, then stays in the owner's band (6.1)
+var opening = Simulation(settings: quiet, seed: 4040)
+check(opening.viewers <= 5 && !opening.viewersSettled, "A stream opens with only a handful of viewers")
+opening.prepare(); advance(&opening, seconds: 30)
+check(opening.viewers <= 5, "Before Go live the viewer count does not move")
+opening.goLive()
+let openedAt = opening.now
+var openingSamples: [Int] = []
+for _ in 0..<160 { advance(&opening, seconds: 3); openingSamples.append(opening.viewers) }
+let openingChat = viewerMessages(opening, after: openedAt).count
+check(openingSamples[4] < 150, "Viewers arrive gradually: still few after 15 seconds (\(openingSamples[4]))")
+check(openingSamples[19] < 900, "No sudden jump: under 900 after a minute (\(openingSamples[19]))")
+let biggestStep = zip(openingSamples, openingSamples.dropFirst()).map { $1 - $0 }.max() ?? 0
+check(biggestStep <= 60, "The count climbs in small steps (largest step \(biggestStep) in 3 s)")
+check(openingSamples.indices.dropFirst(10).allSatisfy { openingSamples[$0] >= openingSamples[$0 - 10] - 20 }, "While the room fills up the count mostly grows")
+check(opening.viewersSettled && Simulation.viewerBand.contains(opening.viewers), "After the opening minutes the count is inside 1,500–1,872 (\(opening.viewers))")
+check(openingChat > 0 && opening.presentChatters > 15, "Chat runs while people arrive, and more of them chat once the room is full")
+var bandMin = Int.max, bandMax = Int.min
+var bandValues = Set<Int>()
+for i in 0..<1200 {
+    advance(&opening, seconds: 3)
+    if i % 200 == 50 { opening.trigger(.win) }
+    if i % 300 == 120 { opening.trigger(.breakTime) }
+    if i % 300 == 170 { opening.trigger(.returnLive) }
+    bandMin = min(bandMin, opening.viewers); bandMax = max(bandMax, opening.viewers); bandValues.insert(opening.viewers)
+}
+print("Viewers over an hour after the opening: \(bandMin)–\(bandMax), \(bandValues.count) distinct values")
+check(bandMin >= 1500 && bandMax <= 1872, "For an hour, with wins and breaks, viewers stay between 1,500 and 1,872")
+check(bandValues.count > 40 && bandMax - bandMin >= 30, "The count keeps moving instead of freezing")
+var crowd = Simulation(settings: quiet, seed: 4041, openingRamp: false)
+check(crowd.viewersSettled && Simulation.viewerBand.contains(crowd.viewers), "A room that starts full is already inside the band")
+for _ in 0..<30 { crowd.trigger(.win); advance(&crowd, seconds: 3) }
+check(crowd.viewers <= 1872, "Many wins in a row cannot push viewers past 1,872")
+for _ in 0..<30 { crowd.trigger(.breakTime); advance(&crowd, seconds: 3) }
+check(crowd.viewers >= 1500, "Long breaks cannot drop viewers below 1,500")
+var openingLevels: [Int] = []
+for seed: UInt64 in 4100..<4110 {
+    var s = Simulation(settings: quiet, seed: seed)
+    advance(&s, seconds: 600)
+    openingLevels.append(s.viewers)
+}
+check(openingLevels.allSatisfy { Simulation.viewerBand.contains($0) } && Set(openingLevels).count >= 5, "Every stream settles inside the band, at its own level")
 
 // MARK: Settings migration
 var old = try JSONDecoder().decode(Settings.self, from: Data(#"{"messagesPerMinute":32,"donationsPerMinute":1,"scenario":"Late night gaming","channelName":"mychannel","cameraReactions":false}"#.utf8))
@@ -575,7 +618,7 @@ print("Final: \(checks) checks passed")
 // MARK: Sample transcripts for human review (F1). Printed, not asserted.
 func transcript(_ title: String, seed: UInt64, scenario: Scenario = .automatic, script: [(Double, (inout Simulation) -> Void)], seconds: Double) {
     var settings = quiet; settings.scenario = scenario
-    var s = Simulation(settings: settings, seed: seed)
+    var s = Simulation(settings: settings, seed: seed, openingRamp: false)
     let start = s.now
     var shown = Set(s.messages.map(\.id))
     var actions = script.sorted { $0.0 < $1.0 }
