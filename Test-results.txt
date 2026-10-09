@@ -1,3 +1,12 @@
+StreamLab 6.1 viewer count — commit 24167ad, GitHub Actions CI run 30 (Linux Swift 6.1 and macOS Xcode 26.6):
+Final: 868 checks passed on both. New checks: a stream opens with 4–9 viewers (never fewer than the people
+chatting), the count does not move before Go live, climbs in small steps (largest 3-second step ≤ 60), is
+under 900 after a minute, mostly grows during the first two minutes, is inside 1,500–1,872 after 8 minutes,
+stays inside the band for an hour with Win and BRB, keeps moving, and 10 streams settle at different levels.
+Mid-stream checks start with a full room (openingRamp: false); the offline hour includes the opening ramp:
+  seed 42: 776 messages, longest silence 31 s · seed 100: 768, 23 s · seed 4242: 683, 33 s · repeated long lines 0.
+Host replies, 40 questions: n=84, fastest 1.8 s, median 6.2 s, p90 13.8 s, 4 unanswered.
+
 StreamLab 6.1 update — commit a5eea06, GitHub Actions CI run 23 (Linux Swift 6.1 and macOS Xcode 26.6):
 Final: 842 checks passed on both. The 70 new checks cover the model-on behaviour with model output
 supplied by the test (the real Apple model does not run in CI): model-only replies to an open question

@@ -1,3 +1,5 @@
+StreamLab 6.1 viewer count — commit 24167ad, CI run 30: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK).
+
 StreamLab 6.1 — commit a5eea06, CI run 23: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK), no compiler
 errors and no slow type-check warnings. This includes the Translation framework code (HostTranslator).
 
