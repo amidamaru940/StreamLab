@@ -712,7 +712,8 @@ struct Simulation {
         active.answerers.insert(speaker)
         let base = max(openerDue, now)
         let due = base + ReactionTiming.delay(voice: person.voice, kind: .reply, readText: openerText, replyLength: chosen.count, using: &random) + random.unit() * 6
-        let answer = PlannedMessage(participant: speaker, text: chosen, source: .topicAnswer, addressee: .participant(active.opener), replyToMessage: active.openerMessage, causeTime: base, earliest: base + 2, due: due, expires: due + 60, eventEpoch: nil, topicID: topic.id, prompt: openerText, writerEligible: false)
+        // Answers that would arrive more than ~70 s after the question are dropped rather than shown out of context.
+        let answer = PlannedMessage(participant: speaker, text: chosen, source: .topicAnswer, addressee: .participant(active.opener), replyToMessage: active.openerMessage, causeTime: base, earliest: base + 2, due: due, expires: max(due + 5, base + 70), eventEpoch: nil, topicID: topic.id, prompt: openerText, writerEligible: false)
         schedule(answer)
         // Occasionally someone reacts to an answer rather than to the opener.
         if random.chance(0.14), let reactor = audience.pickSpeaker(now: now, excluding: active.answerers, using: &random), let r = audience[reactor],
