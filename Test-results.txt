@@ -1,3 +1,10 @@
+StreamLab 6.1 faster viewer fill — commit 9f46d3b, GitHub Actions CI run 35 (Linux Swift 6.1 and macOS Xcode 26.6):
+Final: 870 checks passed on both. The fill now takes 2.5–4.5 minutes: viewers start arriving right away
+(more than the opening count after 15 s), the room is filling but not full after a minute (150–1,200),
+1,500 is reached within five minutes, largest 3-second step ≤ 80. The 1,500–1,872 band checks are unchanged.
+Offline hour with the faster fill: seed 42: 805 messages, longest silence 27 s · seed 100: 789, 29 s ·
+seed 4242: 645, 35 s · repeated long lines 0.
+
 StreamLab 6.1 viewer count — commit d5e290e, GitHub Actions CI run 32 (Linux Swift 6.1 and macOS Xcode 26.6):
 Final: 869 checks passed on both. New checks: a stream opens with 4–9 viewers (never fewer than the people
 chatting, never dipping below it after Go live), the count does not move before Go live, climbs in small steps (largest 3-second step ≤ 60), is
