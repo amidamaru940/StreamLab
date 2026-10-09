@@ -189,6 +189,18 @@ struct Donation: Identifiable {
     let returning: Bool
 }
 
+/// D2: a stream is prepared, goes live (may pause), and ends with a summary.
+enum StreamPhase: String { case ready, live, ended }
+struct StreamSummary {
+    let duration: Double
+    let peakViewers: Int
+    let messages: Int
+    let chatters: Int
+    let gifts: Int
+    let total: Int
+    let topSupporters: [(name: String, amount: Int)]
+}
+
 /// Used topic state for the offline library: answers are consumed once per session.
 private struct TopicUse {
     var lastStarted = -10000.0
@@ -232,6 +244,8 @@ struct Simulation {
     private(set) var acceptedLocalMessages = 0
     private(set) var now: Double = 0
     private(set) var breakActive = false
+    private(set) var phase: StreamPhase = .live
+    private(set) var peakViewers = 0
     private var random: StreamRandom
     private var donationClock = 0.0, bannerClock = 0.0, bannerGap = 0.0
     private var contextClock = 0.0, scenarioClock = 0.0, viewerClock = 0.0, sceneAge = 0.0, presenceClock = 0.0, paceClock = 0.0
@@ -290,9 +304,26 @@ struct Simulation {
     var communitySnapshot: CommunitySnapshot { audience.snapshot }
     var pendingModelSlots: Int { pending.filter { $0.writerRequested && !$0.writtenByModel }.count }
 
-    mutating func togglePause() { running.toggle() }
+    mutating func togglePause() { guard phase == .live else { return }; running.toggle() }
     mutating func pause() { running = false }
-    mutating func resume() { running = true }
+    mutating func resume() { guard phase == .live else { return }; running = true }
+    /// The room is open but the stream has not started: nothing moves until Go live.
+    mutating func prepare() { phase = .ready; running = false }
+    mutating func goLive() {
+        guard phase == .ready else { return }
+        phase = .live; running = true; elapsed = 0; peakViewers = viewers
+    }
+    mutating func end() {
+        guard phase == .live else { return }
+        for message in pending { metrics.drop(message, .staleContext) }
+        pending = []; donationQueue = []; donation = nil
+        phase = .ended; running = false
+    }
+    var summary: StreamSummary {
+        let top = audience.people.filter { $0.sessionTipTotal > 0 }.sorted { $0.sessionTipTotal > $1.sessionTipTotal }.prefix(3).map { (name: $0.name, amount: $0.sessionTipTotal) }
+        let chatters = Set(messages.compactMap(\.participantID)).count
+        return StreamSummary(duration: elapsed, peakViewers: max(peakViewers, viewers), messages: metrics.totalDelivered, chatters: chatters, gifts: donationCount, total: total, topSupporters: Array(top))
+    }
 
     mutating func apply(_ value: Settings) {
         let old = settings
@@ -931,7 +962,7 @@ struct Simulation {
             used.insert(id)
             var line: String?
             var quick = random.chance(quickShare)
-            if quick { line = (ChatContent.events[key + ".quick"] ?? []).shuffled(using: &random).first { !recentShort.contains(TextMemory.canonical($0)) } }
+            if quick { line = reusable(ChatContent.events[key + ".quick"] ?? []) }
             if line == nil {
                 quick = false
                 line = (ChatContent.events[key] ?? []).shuffled(using: &random).first { memory.allows($0) }
@@ -958,6 +989,7 @@ struct Simulation {
     private mutating func updateViewers() {
         audienceTarget = min(12000, max(120, audienceTarget + Int((random.gaussian() * 4).rounded()) + (breakActive ? -2 : 0)))
         viewers = max(1, viewers + (audienceTarget - viewers) / 12 + random.index(7) - 3)
+        if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }
     private mutating func updatePresence() {
         let changes = audience.balance(target: chatterTarget, now: now, using: &random)
@@ -1015,7 +1047,15 @@ struct Simulation {
         case .skeptic: keys = ["disagree", "neutral", "question", "laugh"]
         }
         let key = keys[random.index(keys.count)]
-        return (ChatContent.short[key] ?? []).shuffled(using: &random).first { !recentShort.contains(TextMemory.canonical($0)) }
+        return reusable(ChatContent.short[key] ?? [])
+    }
+    /// Picks from a pool of reactions: short ones may recur between people, longer ones only once per session.
+    private mutating func reusable(_ pool: [String]) -> String? {
+        for line in pool.shuffled(using: &random) {
+            if Self.isShort(line) { if !recentShort.contains(TextMemory.canonical(line)) { return line } }
+            else if memory.accept(line) { return line }
+        }
+        return nil
     }
     private mutating func pickByLength(_ lines: [String], voice: Voice) -> String {
         let weighted = lines.map { line -> Double in

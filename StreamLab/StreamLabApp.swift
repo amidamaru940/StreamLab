@@ -36,6 +36,7 @@ struct ModelDiagnostics {
         let saved = UserDefaults.standard.data(forKey: Self.settingsKey) ?? UserDefaults.standard.data(forKey: "streamlab.settings.v3")
         let settings = saved.flatMap { try? JSONDecoder().decode(Settings.self, from: $0) } ?? Settings()
         engine = Simulation(settings: settings, community: Self.loadCommunity())
+        engine.prepare()
         diagnostics.languages = LocalChatWriter.languageSummary
         timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             guard let self else { return }
@@ -65,9 +66,11 @@ struct ModelDiagnostics {
         writingTask?.cancel(); writingTask = nil
         saveCommunity()
         engine = Simulation(settings: engine.settings, community: Self.loadCommunity())
+        engine.prepare()
         nextWritingAllowed = -.infinity
     }
     func stopWriting() { writingTask?.cancel(); writingTask = nil }
+    func endStream() { engine.end(); stopWriting(); saveCommunity() }
     func saveCommunity() {
         lastCommunitySave = ProcessInfo.processInfo.systemUptime
         if let data = try? JSONEncoder().encode(engine.communitySnapshot) { UserDefaults.standard.set(data, forKey: Self.communityKey) }
@@ -152,6 +155,7 @@ struct LiveView: View {
     @ViewState private var draft = ""
     @ViewState private var followChat = true
     @ViewState private var unseen = 0
+    @ViewState private var confirmEnd = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -207,7 +211,9 @@ struct LiveView: View {
             CameraPreview(session: camera.session, device: camera.device, mirror: camera.isFront)
                 .opacity(camera.status == .live && store.engine.running && cameraEnabled ? 1 : 0)
                 .accessibilityHidden(true)
-            if camera.status != .live || !store.engine.running || !cameraEnabled {
+            if store.engine.phase != .live {
+                lifecycleOverlay
+            } else if camera.status != .live || !store.engine.running || !cameraEnabled {
                 VStack(spacing: 12) {
                     Image(systemName: "video.badge.waveform").font(.system(size: 32, weight: .light)).foregroundStyle(accent)
                     Text(!store.engine.running ? "Stream paused" : camera.status.title).font(.headline)
@@ -233,7 +239,7 @@ struct LiveView: View {
             }
             VStack {
                 HStack(spacing: 8) {
-                    Text(store.engine.running ? "LIVE" : "PAUSED").font(.system(size: 10, weight: .heavy))
+                    Text(badgeText).font(.system(size: 10, weight: .heavy))
                         .padding(.horizontal, 8).padding(.vertical, 5).background(store.engine.running ? Color.red : Color.gray, in: RoundedRectangle(cornerRadius: 4))
                     Text(time).font(.caption.monospacedDigit()).shadow(radius: 3)
                     Spacer()
@@ -380,6 +386,12 @@ struct LiveView: View {
                 Button { store.engine.donate(); showEvents = false } label: {
                     Label("Send a tip", systemImage: "gift.fill").frame(maxWidth: .infinity).padding(12)
                 }.buttonStyle(.borderedProminent).disabled(store.engine.donationQueue.count >= 12)
+                Button(role: .destructive) { confirmEnd = true } label: {
+                    Label("End stream", systemImage: "stop.circle").frame(maxWidth: .infinity).padding(10)
+                }.buttonStyle(.bordered).disabled(store.engine.phase != .live)
+                    .confirmationDialog("End this stream?", isPresented: $confirmEnd, titleVisibility: .visible) {
+                        Button("End stream", role: .destructive) { store.endStream(); camera.stop(); showEvents = false }
+                    }
                 if !store.engine.giftHistory.isEmpty {
                     Text("RECENT GIFTS · \(store.engine.giftHistory.count) · \(USD.format(store.engine.total))").font(.caption.bold()).foregroundStyle(.secondary)
                     ForEach(store.engine.giftHistory.suffix(6).reversed()) { gift in
@@ -400,6 +412,29 @@ struct LiveView: View {
             }.disabled(!store.engine.running).padding(20)
             }.navigationTitle("Creator studio").navigationBarTitleDisplayMode(.inline).tint(accent)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showEvents = false } } }
+        }
+    }
+    private var badgeText: String {
+        switch store.engine.phase {
+        case .ready: return "READY"
+        case .ended: return "ENDED"
+        case .live: return store.engine.running ? "LIVE" : "PAUSED"
+        }
+    }
+    @ViewBuilder private var lifecycleOverlay: some View {
+        if store.engine.phase == .ready {
+            VStack(spacing: 12) {
+                Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 30, weight: .light)).foregroundStyle(accent)
+                Text("Ready when you are").font(.headline)
+                Text(store.engine.settings.streamTitle).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+                Button("Go live") {
+                    store.engine.goLive()
+                    cameraEnabled = true; camera.start()
+                }.buttonStyle(.borderedProminent).tint(.red)
+                Text("Chat, gifts and the timer start when you go live.").font(.caption2).foregroundStyle(.secondary)
+            }.padding(.horizontal, 30)
+        } else {
+            StreamSummaryView(summary: store.engine.summary) { store.reset() }
         }
     }
     private var pacingNote: String {
@@ -584,5 +619,39 @@ struct DiagnosticsView: View {
         var parts: [String] = []
         for reason in DropReason.allCases { parts.append(reason.rawValue + " " + String(m.dropped[reason] ?? 0)) }
         return "Cancelled before showing: " + parts.joined(separator: " · ")
+    }
+}
+
+/// D2: end-of-stream summary from what actually happened in this session.
+private struct StreamSummaryView: View {
+    let summary: StreamSummary
+    let onNewStream: () -> Void
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Stream ended").font(.headline)
+            Text(durationText).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            HStack(spacing: 18) {
+                stat(String(summary.peakViewers), "peak viewers")
+                stat(String(summary.messages), "messages")
+                stat(USD.format(summary.total), "\(summary.gifts) gifts")
+            }
+            if !summary.topSupporters.isEmpty {
+                Text(supportersText).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+            }
+            Button("New stream", action: onNewStream).buttonStyle(.borderedProminent).tint(accent)
+        }.padding(.horizontal, 24)
+    }
+    private var durationText: String {
+        let s = Int(summary.duration)
+        return String(format: "%02d:%02d:%02d live", s / 3600, (s / 60) % 60, s % 60)
+    }
+    private var supportersText: String {
+        "Top supporters: " + summary.topSupporters.map { $0.name + " " + USD.format($0.amount) }.joined(separator: ", ")
+    }
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.subheadline.bold()).monospacedDigit()
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
     }
 }

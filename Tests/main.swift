@@ -305,6 +305,21 @@ check(returning.audience.people.reduce(0) { $0 + $1.pastTipTotal } == tips.total
 check((try? JSONDecoder().decode(CommunitySnapshot.self, from: Data("{broken".utf8))) == nil, "Corrupt community data is rejected")
 returning.donate(); check(returning.donation != nil, "A session with restored audience runs normally")
 
+// MARK: Stream lifecycle (D2)
+var cycle = Simulation(settings: quiet, seed: 61)
+cycle.prepare()
+let readyCount = cycle.messages.count
+advance(&cycle, seconds: 20); cycle.send("hello?"); cycle.togglePause()
+check(cycle.phase == .ready && !cycle.running && cycle.elapsed == 0 && cycle.messages.count == readyCount, "Before Go live nothing moves, even Resume")
+cycle.goLive(); advance(&cycle, seconds: 30)
+check(cycle.phase == .live && cycle.elapsed == 30 && cycle.messages.count > readyCount, "Go live starts the timer and chat")
+cycle.donate(); cycle.send("thanks for coming"); cycle.end()
+let endedCount = cycle.messages.count
+advance(&cycle, seconds: 30); cycle.togglePause(); cycle.goLive()
+check(cycle.phase == .ended && !cycle.running && cycle.pending.isEmpty && cycle.messages.count == endedCount, "Ending stops chat and cancels queued replies")
+let summary = cycle.summary
+check(summary.total == cycle.total && summary.gifts == 1 && summary.duration == 30 && summary.peakViewers >= cycle.viewers && summary.topSupporters.count == 1, "Summary matches what happened")
+
 // MARK: Settings migration
 var old = try JSONDecoder().decode(Settings.self, from: Data(#"{"messagesPerMinute":32,"donationsPerMinute":1,"scenario":"Late night gaming","channelName":"mychannel","cameraReactions":false}"#.utf8))
 check(old.messagesPerMinute == 32 && old.channelName == "mychannel" && !old.cameraReactions, "Migration keeps identity, chat speed and camera preference")
