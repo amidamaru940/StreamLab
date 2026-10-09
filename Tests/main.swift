@@ -350,6 +350,104 @@ check(WritingResult.parse("```json\n{\"line1\":\"hey\",\"ambient\":[\"hello chat
 check(WritingResult.parse("not JSON", request: parsedRequest) == nil && WritingResult.parse("}{", request: parsedRequest) == nil && WritingResult.parse(String(repeating: "x", count: 13000), request: parsedRequest) == nil, "Malformed or oversized writing is rejected")
 check(!Simulation.acceptableModelLine("привет всем", maxLength: 60) && !Simulation.acceptableModelLine("#ad check this", maxLength: 60) && Simulation.acceptableModelLine("my tea went cold again", maxLength: 60), "Model output in another language or with tags is rejected")
 
+// MARK: Apple Intelligence on: substantive answers, new topics, stream memory, translation
+// The model itself does not run here: these checks feed the engine what a model would return.
+func modelOnlyRun(seed: UInt64) -> (Simulation, UUID, [PlannedMessage])? {
+    for question in ["What did you get up to today?", "Anyone have a weird hobby?", "What's something you learned recently?", "What are you looking forward to this week?"] {
+        var s = Simulation(settings: writerSettings, seed: seed); s.setModelActive(true)
+        s.send(question)
+        guard let hostID = s.messages.last?.id else { continue }
+        let planned = s.pending.filter { $0.requiresModel && $0.replyToMessage == hostID }
+        if !planned.isEmpty { return (s, hostID, planned) }
+    }
+    return nil
+}
+var modelOnlyFound = 0
+for seed: UInt64 in 610..<640 {
+    guard let run = modelOnlyRun(seed: seed) else { continue }
+    var s = run.0; let hostID = run.1, planned = run.2
+    modelOnlyFound += 1
+    let at = s.now
+    let replies = s.pending.filter { $0.replyToMessage == hostID && $0.source == .hostReply }
+    check(replies.allSatisfy { $0.writerEligible && $0.due - at >= 6 }, "With the model on, replies to an open question are offered to it and leave time for the request")
+    if seed % 2 == 0 {
+        // No model text arrives: these replies are dropped, never shown as placeholders.
+        advance(&s, seconds: 70)
+        check(!s.messages.contains { m in planned.contains { $0.id == m.id } || m.text == Simulation.modelPlaceholder }, "Replies that exist only as model text are dropped when the model gives nothing")
+        check((s.metrics.dropped[.noModelText] ?? 0) >= planned.count, "Dropped model-only replies are counted")
+    } else {
+        guard let req = s.makeWritingRequest(maxSlots: 6) else { fatalError("No writing request for planned host replies") }
+        var answers: [UUID: String] = [:]
+        let pool = ["walked the dog and did laundry", "worked late, then pizza", "fixed my bike finally", "nothing much, slept in", "cleaned the whole kitchen", "went to my cousin's thing"]
+        for (i, slot) in req.slots.enumerated() { answers[slot.id] = pool[i % pool.count] }
+        _ = s.acceptWriting(WritingResult(slotTexts: answers, ambient: []), for: req)
+        advance(&s, seconds: 70)
+        let shown = planned.compactMap { p in s.messages.first { $0.id == p.id }.map { (p, $0) } }
+        check(shown.allSatisfy { pair in pair.1.participantID == pair.0.participant && pair.1.replyToHost && answers[pair.0.id] == pair.1.text }, "Model answers to the host are shown by their planned authors, with the model's words")
+        check(shown.allSatisfy { pair in pair.1.postedAt - at >= 6 }, "Model answers do not appear right after the question")
+    }
+}
+check(modelOnlyFound >= 4, "Open questions without a library answer get extra model-only replies when the model is on")
+var noModel = Simulation(settings: writerSettings, seed: 612)
+noModel.send("What did you get up to today?")
+check(!noModel.pending.contains { $0.requiresModel }, "Without the model nothing waits for model text")
+
+var topical = Simulation(settings: writerSettings, seed: 808); topical.setModelActive(true)
+advance(&topical, seconds: 25)
+let topicRequest = topical.makeWritingRequest()
+check(topicRequest?.topicWanted == true, "The model is asked for a new topic now and then")
+let invented = GeneratedTopic(question: "what's everyone's go-to rainy day snack?", answers: ["toast with butter, every time", "popcorn and a blanket", "honestly just more tea"])
+check(topical.acceptWriting(WritingResult(slotTexts: [:], ambient: [], topic: invented), for: topicRequest!) >= 3, "A model-invented topic is accepted")
+let badTopic = GeneratedTopic(question: "visit @someone for $5?", answers: ["ok", "sure"])
+var topicalCopy = topical
+check(topicalCopy.acceptWriting(WritingResult(slotTexts: [:], ambient: [], topic: badTopic), for: topicRequest!) == 0, "Model topics with mentions or money are rejected")
+var inventedOpener: ChatMessage?
+for _ in 0..<60 where inventedOpener == nil {
+    advance(&topical, seconds: 4)
+    inventedOpener = topical.messages.first { $0.text.lowercased() == invented.question }
+}
+check(inventedOpener != nil && inventedOpener?.source == .topicOpener, "A model topic is opened by a viewer")
+advance(&topical, seconds: 75)
+let inventedAnswers = topical.messages.filter { m in invented.answers.contains { $0 == m.text.lowercased() } }
+check(inventedAnswers.allSatisfy { $0.participantID != inventedOpener?.participantID && $0.replyTo == inventedOpener?.name }, "Model topic answers come from other viewers, addressed to the asker")
+check(Set(inventedAnswers.compactMap(\.participantID)).count == inventedAnswers.count, "Each model topic answer has its own author")
+
+var remembering = Simulation(settings: writerSettings, seed: 909)
+remembering.send("my sister visited today")
+remembering.trigger(.laugh)
+_ = remembering.donate()
+advance(&remembering, seconds: 25)
+let memoryRequest = remembering.makeWritingRequest()
+let notesSoFar = memoryRequest?.memory ?? []
+check(notesSoFar.contains { $0.hasSuffix("host said: my sister visited today") } && notesSoFar.contains { $0.contains("Laugh") } && notesSoFar.contains { $0.contains("tipped") }, "Stream memory for the model holds what really happened")
+
+var translated = Simulation(settings: writerSettings, seed: 1001)
+translated.setTranslationAvailable(true)
+let waitingID = translated.send("Чай или кофе?")
+check(waitingID != nil && !translated.pending.contains { $0.replyToMessage == waitingID }, "Russian host text waits for the on-device translation")
+advance(&translated, seconds: 1)
+translated.hostTranslation("Tea or coffee?", for: waitingID!)
+let translatedReplies = translated.pending.filter { $0.replyToMessage == waitingID }
+check(!translatedReplies.isEmpty && translatedReplies.allSatisfy { $0.due > translated.now + 1 }, "After translation, replies are planned with reading and typing time")
+check(translatedReplies.contains { $0.text.lowercased().contains("tea") || $0.text.lowercased().contains("coffee") }, "Replies follow the translated meaning")
+check(translated.makeWritingRequest()?.memory.contains { $0.hasSuffix("host said (translated): Tea or coffee?") } == true, "The translated meaning is remembered for the model")
+let repliesBefore = translated.pending.filter { $0.replyToMessage == waitingID }.count
+translated.hostTranslation("Tea or coffee?", for: waitingID!)
+check(translated.pending.filter { $0.replyToMessage == waitingID }.count == repliesBefore, "A translation is applied only once")
+var slowTranslation = Simulation(settings: writerSettings, seed: 1002)
+slowTranslation.setTranslationAvailable(true)
+let slowID = slowTranslation.send("Чай или кофе?")
+advance(&slowTranslation, seconds: 10)
+let fallbackCount = slowTranslation.pending.filter { $0.replyToMessage == slowID }.count + slowTranslation.messages.filter { $0.source == .hostReply }.count
+slowTranslation.hostTranslation("Tea or coffee?", for: slowID!)
+check(slowTranslation.pending.filter { $0.replyToMessage == slowID }.count + slowTranslation.messages.filter { $0.source == .hostReply }.count == fallbackCount, "A translation that arrives too late changes nothing")
+var noPack = Simulation(settings: writerSettings, seed: 1003)
+noPack.setTranslationAvailable(true)
+let noPackID = noPack.send("Привет всем")
+noPack.hostTranslation(nil, for: noPackID!)
+advance(&noPack, seconds: 40)
+check(noPack.messages.filter { $0.source == .hostReply }.count <= 1, "Without a translation, chat reacts as before: rarely and vaguely")
+
 // MARK: Donors are members of the audience
 var tips = Simulation(settings: quiet, seed: 717)
 var notes = Set<String>(); var silentTips = 0
