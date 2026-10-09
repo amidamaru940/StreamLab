@@ -1,3 +1,12 @@
+StreamLab 6.1 update — commit a5eea06, GitHub Actions CI run 23 (Linux Swift 6.1 and macOS Xcode 26.6):
+Final: 842 checks passed on both. The 70 new checks cover the model-on behaviour with model output
+supplied by the test (the real Apple model does not run in CI): model-only replies to an open question
+are dropped when no model text arrives and shown by their planned author when it does (never sooner
+than 6 s); a model-invented topic is opened and answered by different viewers; stream memory holds
+what the host said, marked moments and tips; Russian host text waits for translation, replies follow
+the English meaning, a late or missing translation falls back to the old behaviour.
+Offline-hour and host-reply timing figures below are unchanged in run 23.
+
 StreamLab 6.0 — engine checks (Tests/main.swift via test-engine.sh)
 Commit 005b85d, GitHub Actions CI run 19, run twice:
   - Linux, Swift 6.1 (swift:6.1-noble container)

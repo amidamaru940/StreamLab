@@ -1,3 +1,6 @@
+StreamLab 6.1 — commit a5eea06, CI run 23: ** BUILD SUCCEEDED ** (Xcode 26.6, iPhoneOS 26.5 SDK), no compiler
+errors and no slow type-check warnings. This includes the Translation framework code (HostTranslator).
+
 StreamLab 6.0 (6) — 2026-10-09
 Where: GitHub Actions, macos-latest runner (workflow .github/workflows/ci.yml, job "iOS build")
 Xcode 26.6 / Build version 17F113
