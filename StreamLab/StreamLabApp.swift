@@ -156,6 +156,8 @@ struct LiveView: View {
     @ViewState private var followChat = true
     @ViewState private var unseen = 0
     @ViewState private var confirmEnd = false
+    @ViewState private var selectedMessage: ChatMessage?
+    @ViewState private var pinned: ChatMessage?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -172,6 +174,12 @@ struct LiveView: View {
         .sheet(isPresented: $showSettings) { SettingsView(store: store) }
         .sheet(isPresented: $showEvents) { eventControls.presentationDetents([.large]) }
         .sheet(isPresented: $showTitleEditor) { TitleEditor(store: store).presentationDetents([.medium]) }
+        .sheet(item: $selectedMessage) { message in
+            ParticipantCard(store: store, message: message,
+                            onReply: { name in draft = "@" + name + " "; selectedMessage = nil },
+                            onPin: { pinned = message; selectedMessage = nil })
+                .presentationDetents([.medium, .large])
+        }
         .onChange(of: store.engine.running) { _, running in
             if running && cameraEnabled && scenePhase == .active { camera.start() } else { camera.stop() }
         }
@@ -307,6 +315,15 @@ struct LiveView: View {
                 Button { followChat.toggle() } label: { Image(systemName: followChat ? "arrow.down.to.line.circle.fill" : "arrow.down.to.line.circle").frame(width: 36, height: 36) }
                     .accessibilityLabel(followChat ? "Stop chat auto-scroll" : "Follow newest messages").tint(.secondary)
             }.padding(.horizontal, 16).background(surface)
+            if let pinned {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(accent)
+                    Text(pinned.name + ": " + pinned.text).font(.caption).lineLimit(2)
+                    Spacer(minLength: 4)
+                    Button { self.pinned = nil } label: { Image(systemName: "xmark").font(.caption2).frame(width: 28, height: 28) }
+                        .tint(.secondary).accessibilityLabel("Unpin message")
+                }.padding(.horizontal, 16).padding(.vertical, 6).background(accent.opacity(0.1))
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
@@ -323,6 +340,9 @@ struct LiveView: View {
                                 }
                             }.padding(message.isDonation ? 8 : 0)
                                 .background(message.isDonation ? accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8)).id(message.id)
+                                .contentShape(Rectangle())
+                                .onTapGesture { if message.participantID != nil { selectedMessage = message } }
+                                .accessibilityAddTraits(message.participantID != nil ? .isButton : [])
                         }
                     }.padding(14)
                 }.frame(maxHeight: .infinity)
@@ -676,5 +696,51 @@ private struct StreamSummaryView: View {
             Text(value).font(.subheadline.bold()).monospacedDigit()
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// D4: who someone is in this room, from what actually happened.
+private struct ParticipantCard: View {
+    @ObservedObject var store: StreamStore
+    let message: ChatMessage
+    let onReply: (String) -> Void
+    let onPin: () -> Void
+    private var person: Participant? { message.participantID.flatMap { store.engine.audience[$0] } }
+    private var recent: [ChatMessage] {
+        Array(store.engine.messages.filter { $0.participantID == message.participantID && !$0.isDonation }.suffix(5).reversed())
+    }
+    var body: some View {
+        NavigationStack {
+            List {
+                if let person {
+                    Section {
+                        HStack(spacing: 12) {
+                            Text(person.avatar).font(.system(size: 13, weight: .bold))
+                                .frame(width: 44, height: 44).background(avatarColors[person.color].opacity(0.35), in: Circle())
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(person.name).font(.headline)
+                                Text(statusLine(person)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        LabeledContent("Messages this stream", value: String(person.messages))
+                        if person.sessionTipTotal > 0 { LabeledContent("Gifts this stream", value: USD.format(person.sessionTipTotal)) }
+                        if person.pastTipTotal > 0 { LabeledContent("Gifts in earlier streams", value: USD.format(person.pastTipTotal)) }
+                    }
+                }
+                Section("Recent messages") {
+                    ForEach(recent) { item in Text(item.text).font(.subheadline) }
+                }
+                Section {
+                    Button { onReply(message.name) } label: { Label("Reply to " + message.name, systemImage: "arrowshape.turn.up.left") }
+                    Button { onPin() } label: { Label("Pin this message", systemImage: "pin") }
+                }
+            }.navigationTitle("Viewer").navigationBarTitleDisplayMode(.inline)
+        }.tint(accent)
+    }
+    private func statusLine(_ person: Participant) -> String {
+        var parts: [String] = [person.present ? "In chat now" : "Not in chat right now"]
+        if person.streamsChatted > 0 { parts.append("chatted in \(person.streamsChatted) earlier stream" + (person.streamsChatted == 1 ? "" : "s")) }
+        else if person.messages <= 1 { parts.append("new here") }
+        return parts.joined(separator: " · ")
     }
 }

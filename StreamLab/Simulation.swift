@@ -575,6 +575,8 @@ struct Simulation {
         var replyName: String?
         var toHost = false
         switch message.addressee {
+        // A viewer talking to the streamer is ordinary chat, not a reply to something the host said.
+        case .host? where message.source == .viewerToHost: break
         case .host?: toHost = true; replyName = settings.channelName
         case .participant(let id)?: replyName = audience[id]?.name
         case nil: break
@@ -613,7 +615,7 @@ struct Simulation {
         budget = min(6, budget + rate / 60 * dt * pace * activity * breakFactor * studyFactor)
         let queuedAmbient = pending.filter { $0.due > now && [.topicOpener, .topicAnswer, .topicFollowUp, .sideReaction, .viewerToHost, .ambientAI].contains($0.source) }.count
         guard budget >= 1, queuedAmbient < 8 else { return }
-        activeTopics.removeAll { now - $0.startedAt > 150 }
+        activeTopics.removeAll { now - $0.startedAt > 75 }
         var options: [(Double, Int)] = []
         options.append((activeTopics.count < 2 ? 0.5 : 0.08, 0))
         if !activeTopics.isEmpty { options.append((0.22, 1)) }
@@ -757,7 +759,8 @@ struct Simulation {
 
     /// A short reaction to a recent viewer line, addressed to that viewer.
     private mutating func sideReaction() -> Int {
-        guard let target = messages.suffix(6).last(where: { !$0.isHost && !$0.isDonation && $0.participantID != nil && now - $0.postedAt < 20 && !Self.isShort($0.text) }),
+        // Only answers to a chat question get a quick "same"/"lol"/"nah": those are opinions people react to.
+        guard let target = messages.suffix(6).last(where: { $0.source == .topicAnswer && $0.participantID != nil && now - $0.postedAt < 20 && !Self.isShort($0.text) }),
               let targetID = target.participantID,
               let reactor = audience.pickSpeaker(now: now, excluding: [targetID], using: &random), let person = audience[reactor],
               let line = shortLine(for: person.personality) else { return 0 }
@@ -1055,12 +1058,14 @@ struct Simulation {
         nextDonation = settings.donationsPerMinute > 0 ? (60 / settings.donationsPerMinute) * (0.75 + random.unit() * 0.6) : .infinity
     }
     private mutating func shortLine(for personality: Personality) -> String? {
+        // Reactions to someone's opinion: agreement, a laugh, mild disagreement or a neutral nod.
+        // Hype, sympathy and questions need a specific cause, so they are not used here.
         let keys: [String]
         switch personality {
-        case .joker: keys = ["laugh", "laugh", "surprise", "agree"]
-        case .supporter: keys = ["agree", "hype", "sympathy", "laugh"]
-        case .analyst: keys = ["question", "neutral", "agree", "disagree"]
-        case .skeptic: keys = ["disagree", "neutral", "question", "laugh"]
+        case .joker: keys = ["laugh", "laugh", "agree"]
+        case .supporter: keys = ["agree", "agree", "laugh"]
+        case .analyst: keys = ["neutral", "agree", "disagree"]
+        case .skeptic: keys = ["disagree", "neutral", "agree"]
         }
         let key = keys[random.index(keys.count)]
         return reusable(ChatContent.short[key] ?? [])

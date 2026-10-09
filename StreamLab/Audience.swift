@@ -52,12 +52,14 @@ struct Participant: Identifiable, Codable, Equatable {
     var pastTips = 0
     var pastTipTotal = 0
     var sessionsSeen = 0
+    /// Earlier streams in which this person actually wrote something.
+    var streamsChatted = 0
     /// Something this person asked and may still be waiting on.
     var openQuestion: String?
     var openQuestionAt: Double = -1000
 
     var present: Bool { presence == .present }
-    private enum CodingKeys: String, CodingKey { case id, name, avatar, color, personality, voice, regular, pastTips, pastTipTotal, sessionsSeen }
+    private enum CodingKeys: String, CodingKey { case id, name, avatar, color, personality, voice, regular, pastTips, pastTipTotal, sessionsSeen, streamsChatted }
 }
 
 /// Stored between launches. Only identities and gift history that actually happened in the app.
@@ -173,6 +175,7 @@ struct Audience {
         stored = Array(stored.prefix(160))
         for i in stored.indices {
             stored[i].pastTips += stored[i].sessionTips; stored[i].pastTipTotal += stored[i].sessionTipTotal
+            if stored[i].messages > 0 { stored[i].streamsChatted += 1 }
             stored[i].sessionTips = 0; stored[i].sessionTipTotal = 0
         }
         return CommunitySnapshot(people: stored.sorted { $0.id < $1.id })
