@@ -30,8 +30,16 @@ let winAt = sim.now
 advance(&sim, seconds: 25)
 let winReactions = sim.messages.filter { $0.source == .eventReaction && $0.postedAt > winAt }
 check(!winReactions.isEmpty && winReactions.allSatisfy { $0.postedAt - winAt >= 1.2 }, "Win reactions arrive after noticing and typing time")
-let winTimes = winReactions.map(\.postedAt)
-check(winTimes.count < 3 || (winTimes.max()! - winTimes.min()! >= 2), "Reactions are spread out rather than landing together")
+// A quick burst of "gg" is normal; across many streams reactions still spread over several seconds.
+var spreads: [Double] = []
+for seed: UInt64 in 900..<920 {
+    var s = Simulation(settings: quiet, seed: seed)
+    s.trigger(.win); let at = s.now
+    advance(&s, seconds: 25)
+    let times = s.messages.filter { $0.source == .eventReaction && $0.postedAt > at }.map(\.postedAt)
+    if times.count >= 3 { spreads.append(times.max()! - times.min()!) }
+}
+check(spreads.count >= 5 && spreads.sorted()[spreads.count / 2] >= 3, "Reactions are spread out rather than landing together")
 sim.donate()
 let freeze = (sim.elapsed, sim.messages.count, sim.total, sim.donation?.id, sim.donationProgress)
 sim.pause(); advance(&sim, seconds: 30); sim.donate(); sim.trigger(.fail); sim.send("test")
