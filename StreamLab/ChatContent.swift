@@ -41,7 +41,7 @@ enum ChatContent {
                 "some herbal tea my sister left here",
                 "flat soda that's been open since tuesday"
             ],
-            followUps: ["coffee people are built different", "ok i'm getting tea now"],
+            followUps: ["mine's just tap water lol", "ok i'm getting tea now"],
             hostKeywords: ["drink", "drinking", "coffee", "tea", "water", "thirsty"]
         ),
         ChatTopic(
@@ -69,7 +69,7 @@ enum ChatContent {
         ChatTopic(
             id: "any.sleep",
             scenes: ["any"],
-            openers: ["what time does everyone usually go to bed", "sleep schedule check", "who here actually sleeps 8 hours"],
+            openers: ["what time does everyone usually go to bed", "sleep schedule check", "when do you all usually fall asleep"],
             answers: [
                 "around 11 if i'm lucky",
                 "2am on a good night",
@@ -81,11 +81,11 @@ enum ChatContent {
                 "never before midnight",
                 "i nap instead lol",
                 "midnight on the dot, weirdly consistent",
-                "i keep saying i'll fix it",
-                "6 hours max, every night",
+                "way too late, i keep saying i'll fix it",
+                "1am, then up at 7",
                 "whenever the cat lets me"
             ],
-            followUps: ["glad i'm not the only one", "ok none of us are doing well"],
+            followUps: ["my sleep schedule is a mess this month", "ok i'm going to bed right after this, for real"],
             hostKeywords: ["sleep", "bed", "bedtime", "tired", "nap", "sleeping"]
         ),
         ChatTopic(
@@ -107,13 +107,13 @@ enum ChatContent {
                 "farmers market saturday morning",
                 "what weekend, i work retail"
             ],
-            followUps: ["sounds like everyone's busier than me", "i should make plans honestly"],
+            followUps: ["i'm working saturday so that's my weekend", "i should make plans honestly"],
             hostKeywords: ["weekend", "saturday", "sunday", "plans", "friday"]
         ),
         ChatTopic(
             id: "any.pets",
             scenes: ["any"],
-            openers: ["who has pets at home", "pet owners where you at", "anyone got a cat or dog with them rn"],
+            openers: ["who has pets at home", "pet owners where you at", "pet check, who's got what"],
             answers: [
                 "two cats, both asleep on me",
                 "a dog who's staring at me for food",
@@ -129,13 +129,13 @@ enum ChatContent {
                 "my parents' dog when i visit",
                 "cat currently knocking stuff off my desk"
             ],
-            followUps: ["everyone's pets sound better behaved than mine", "i want all of them honestly"],
+            followUps: ["my cat just walked across my keyboard", "ok i need to go feed mine"],
             hostKeywords: ["pet", "pets", "cat", "dog", "cats", "dogs", "animal"]
         ),
         ChatTopic(
             id: "any.timezone",
             scenes: ["any"],
-            openers: ["what time is it for everyone", "time check, where's everyone at", "how late is it for you all"],
+            openers: ["what time is it for everyone", "time check, where's everyone at", "what time is it where you are"],
             answers: [
                 "almost midnight here",
                 "3am, don't ask",
@@ -150,7 +150,7 @@ enum ChatContent {
                 "sunrise soon over here",
                 "late enough that i should be asleep"
             ],
-            followUps: ["chat is literally all over the place", "the 3am people need to sleep"],
+            followUps: ["it's almost 2am here btw", "6pm for me, just got off work"],
             hostKeywords: ["time", "timezone", "late", "clock", "hour"]
         ),
         ChatTopic(
@@ -172,13 +172,13 @@ enum ChatContent {
                 "only music without words",
                 "i sing along so no work gets done"
             ],
-            followUps: ["ok gonna try something new tomorrow", "silence people are stronger than me"],
+            followUps: ["ok gonna try something new tomorrow", "i've had the same song on loop for an hour"],
             hostKeywords: ["music", "playlist", "listen", "listening", "songs"]
         ),
         ChatTopic(
             id: "any.battery",
             scenes: ["any"],
-            openers: ["battery check, what's your phone at", "whose phone is dying right now", "phone battery percentage go"],
+            openers: ["battery check, what's your phone at", "how's everyone's phone battery", "phone battery percentage go"],
             answers: [
                 "12% and no charger nearby",
                 "100, plugged in all day",
@@ -193,7 +193,7 @@ enum ChatContent {
                 "my battery health is at 74 so who knows",
                 "half"
             ],
-            followUps: ["someone go charge their phone", "i'm at 9 btw"],
+            followUps: ["plugging mine in right now", "i'm at 9 btw"],
             hostKeywords: ["battery", "phone", "charge", "charger", "charging", "percent"]
         ),
         ChatTopic(
@@ -215,7 +215,7 @@ enum ChatContent {
                 "cold in the morning, hot by noon",
                 "dry and dusty"
             ],
-            followUps: ["chat has every season at once", "i want to live where the nice weather is"],
+            followUps: ["it's pouring here btw", "it's so cold here i'm in two hoodies"],
             hostKeywords: ["weather", "rain", "raining", "cold", "hot", "snow", "sunny"]
         ),
         ChatTopic(
@@ -237,13 +237,13 @@ enum ChatContent {
                 "three shows at once and finishing none",
                 "old cartoons"
             ],
-            followUps: ["everyone rewatches the same comfort show huh", "my watchlist just got longer"],
+            followUps: ["i just finished a show and now i feel lost", "my watchlist just got longer"],
             hostKeywords: ["show", "shows", "series", "binge", "tv", "netflix"]
         ),
         ChatTopic(
             id: "any.commute",
             scenes: ["any"],
-            openers: ["how does everyone get to work or school", "commute check", "anyone here have a long commute"],
+            openers: ["how does everyone get to work or school", "commute check", "what's your commute like"],
             answers: [
                 "walk, 10 minutes",
                 "train, an hour each way",
@@ -258,7 +258,7 @@ enum ChatContent {
                 "don't have one right now",
                 "two buses and a walk"
             ],
-            followUps: ["long commutes should count as work hours", "remote people are winning"],
+            followUps: ["mine's 40 minutes each way", "i'd bike if it wasn't so far"],
             hostKeywords: ["commute", "bus", "train", "drive", "traffic", "school"]
         ),
         ChatTopic(
@@ -280,7 +280,7 @@ enum ChatContent {
                 "spicy noodles",
                 "chicken nuggets, i'm a child"
             ],
-            followUps: ["now i'm hungry, thanks chat", "nobody said salad lol"],
+            followUps: ["now i'm hungry, thanks chat", "mine's cheese on toast, every time"],
             hostKeywords: ["comfort", "favorite", "favourite", "dish", "food"]
         ),
         ChatTopic(
@@ -301,7 +301,7 @@ enum ChatContent {
                 "early bird since i got a dog",
                 "i have no idea anymore"
             ],
-            followUps: ["morning people are a mystery to me", "night owls stay winning"],
+            followUps: ["i'm useless before 10am personally", "night owl here, obviously"],
             hostKeywords: ["morning", "night", "early", "owl", "person"]
         ),
         ChatTopic(
@@ -323,7 +323,7 @@ enum ChatContent {
                 "burgers on the grill",
                 "rice and beans"
             ],
-            followUps: ["the people who haven't eaten, go eat", "ok i'm ordering something"],
+            followUps: ["i had toast, that's it", "ok i'm ordering something"],
             hostKeywords: ["dinner", "eat", "ate", "lunch", "meal"]
         )
     ]
@@ -332,7 +332,7 @@ enum ChatContent {
         ChatTopic(
             id: "any.dayrating",
             scenes: ["any"],
-            openers: ["how was everyone's day", "rate your day out of 10", "good day or bad day chat"],
+            openers: ["how's everyone's day going", "rate your day out of 10", "good day or bad day chat"],
             answers: [
                 "6, nothing happened",
                 "honestly a 9, got a lot done",
@@ -347,13 +347,13 @@ enum ChatContent {
                 "it's still going unfortunately",
                 "survived, that's all i got"
             ],
-            followUps: ["hope tomorrow's better for the low numbers", "pretty average day for me too"],
+            followUps: ["mine was a 6, nothing special", "my day was weird, still processing it"],
             hostKeywords: ["day", "today", "rate", "week"]
         ),
         ChatTopic(
             id: "any.hobbies",
             scenes: ["any"],
-            openers: ["what hobbies do you all have outside of this", "anyone picked up a new hobby lately", "hobby check"],
+            openers: ["what hobbies do you all have outside of this", "what do you all do for fun", "hobby check"],
             answers: [
                 "rock climbing, badly",
                 "knitting, started last winter",
@@ -369,13 +369,13 @@ enum ChatContent {
                 "puzzles, 1000 pieces minimum",
                 "building model kits"
             ],
-            followUps: ["i really need a hobby that isn't my phone", "everyone's more interesting than me"],
+            followUps: ["i really need a hobby that isn't my phone", "i've been meaning to try pottery"],
             hostKeywords: ["hobby", "hobbies", "free", "fun", "interests", "spare"]
         ),
         ChatTopic(
             id: "any.reading",
             scenes: ["any"],
-            openers: ["anyone reading anything good", "book people in chat?", "last book you finished?"],
+            openers: ["anyone reading anything good", "book people in chat?", "what are you all reading lately"],
             answers: [
                 "a fantasy series, on book 4",
                 "haven't read a book in years tbh",
@@ -397,7 +397,7 @@ enum ChatContent {
         ChatTopic(
             id: "any.chores",
             scenes: ["any"],
-            openers: ["which chore do you hate most", "worst chore, go", "what chore are you avoiding right now"],
+            openers: ["which chore do you hate most", "worst chore, go", "what chore do you put off the longest"],
             answers: [
                 "dishes, every time",
                 "folding laundry",
@@ -419,7 +419,7 @@ enum ChatContent {
         ChatTopic(
             id: "any.foodtakes",
             scenes: ["any"],
-            openers: ["unpopular food opinion, go", "food hot take?", "what food does everyone like that you don't"],
+            openers: ["unpopular food opinion, go", "food hot take?", "what's a food opinion that gets you weird looks"],
             answers: [
                 "pineapple on pizza is good, sorry",
                 "avocado is overrated",
@@ -435,13 +435,13 @@ enum ChatContent {
                 "burnt toast is fine",
                 "peanut butter and pickles works"
             ],
-            followUps: ["some of these are crimes", "ok i expected worse"],
+            followUps: ["mine is that soup isn't a real meal", "i'm keeping mine to myself, too risky"],
             hostKeywords: ["opinion", "unpopular", "overrated", "underrated", "take"]
         ),
         ChatTopic(
             id: "any.device",
             scenes: ["any"],
-            openers: ["what's everyone watching on, phone or pc", "who's watching on their phone", "tv, phone, or laptop crew"],
+            openers: ["what's everyone watching on, phone or pc", "what device is everyone on", "tv, phone, or laptop crew"],
             answers: [
                 "phone in bed",
                 "pc, second monitor",
@@ -456,13 +456,13 @@ enum ChatContent {
                 "on my phone while cooking",
                 "tv through a console"
             ],
-            followUps: ["i'm on my phone too", "the second monitor setup is the dream"],
+            followUps: ["phone for me, lying on the floor", "laptop on my knees over here"],
             hostKeywords: ["device", "pc", "laptop", "tablet", "mobile", "watching"]
         ),
         ChatTopic(
             id: "any.seasons",
             scenes: ["any"],
-            openers: ["favorite season?", "best season, go", "summer or winter people?"],
+            openers: ["favorite season?", "best season, go", "which season is yours"],
             answers: [
                 "autumn, easy",
                 "winter, i like the cold",
@@ -477,7 +477,7 @@ enum ChatContent {
                 "summer, i hate being cold",
                 "whichever one has the least bugs"
             ],
-            followUps: ["fall people are always the loudest", "everyone's right honestly"],
+            followUps: ["mine's autumn, i'm predictable", "i change my answer every year honestly"],
             hostKeywords: ["season", "seasons", "summer", "winter", "fall", "autumn", "spring"]
         ),
         ChatTopic(
@@ -498,7 +498,7 @@ enum ChatContent {
                 "between jobs, i have all the time",
                 "about to start a shift actually"
             ],
-            followUps: ["the night shift people are heroes", "hang in there workers"],
+            followUps: ["on my break, 20 minutes left", "hang in there if you're still working"],
             hostKeywords: ["work", "job", "shift", "office", "working", "boss"]
         ),
         ChatTopic(
@@ -519,13 +519,13 @@ enum ChatContent {
                 "smoothie",
                 "i eat breakfast at 2pm, does that count"
             ],
-            followUps: ["breakfast skippers worry me", "i'm hungry again"],
+            followUps: ["i skipped it today and i regret it", "i'm hungry again"],
             hostKeywords: ["breakfast", "eggs", "cereal", "oatmeal", "brunch"]
         ),
         ChatTopic(
             id: "any.travel",
             scenes: ["any"],
-            openers: ["where's somewhere you want to travel", "dream trip, where to", "anyone been anywhere cool lately"],
+            openers: ["where's somewhere you want to travel", "dream trip, where to", "if you could go anywhere next, where"],
             answers: [
                 "somewhere with mountains",
                 "anywhere with a beach",
@@ -540,13 +540,13 @@ enum ChatContent {
                 "an island somewhere quiet",
                 "a long train trip across the country"
             ],
-            followUps: ["i need a vacation so bad", "adding all of these to my list"],
+            followUps: ["i need a vacation so bad", "noted, adding to my list"],
             hostKeywords: ["travel", "trip", "vacation", "visit", "holiday", "country"]
         ),
         ChatTopic(
             id: "any.childhood",
             scenes: ["any"],
-            openers: ["what did you watch as a kid", "favorite cartoon growing up?", "what show were you obsessed with as a kid"],
+            openers: ["what did you watch as a kid", "what was on your tv growing up", "what show were you obsessed with as a kid"],
             answers: [
                 "saturday morning cartoons, all of them",
                 "a nature show about animals",
@@ -561,13 +561,13 @@ enum ChatContent {
                 "old movies on vhs",
                 "a cooking show, i was a weird kid"
             ],
-            followUps: ["the old stuff hits different", "i forgot about half of this"],
+            followUps: ["the old stuff hits different", "mine was a show nobody remembers"],
             hostKeywords: ["kid", "childhood", "cartoon", "cartoons", "grew", "growing"]
         ),
         ChatTopic(
             id: "any.alarm",
             scenes: ["any"],
-            openers: ["do you snooze your alarm", "how many alarms do you set", "alarm people, one or ten?"],
+            openers: ["what's your alarm situation", "how many alarms do you set", "alarm people, one or ten?"],
             answers: [
                 "one alarm, up immediately",
                 "five alarms 5 minutes apart",
@@ -582,7 +582,7 @@ enum ChatContent {
                 "never use one, don't have to be anywhere",
                 "my neighbor's car alarm"
             ],
-            followUps: ["the multi alarm people need help", "snoozing is a lifestyle"],
+            followUps: ["i set six and still wake up late", "snoozing is a lifestyle"],
             hostKeywords: ["alarm", "alarms", "snooze", "wake", "waking"]
         ),
         ChatTopic(
@@ -625,7 +625,7 @@ enum ChatContent {
                 "a decent duck call",
                 "solving a rubik's cube, slowly"
             ],
-            followUps: ["these are better than mine", "i can't do any of these"],
+            followUps: ["these are better than mine", "mine is cracking all my knuckles at once"],
             hostKeywords: ["skill", "talent", "trick", "useless", "weird"]
         )
     ]
@@ -658,7 +658,7 @@ enum ChatContent {
         ChatTopic(
             id: "jc.firstjob",
             scenes: ["Just chatting"],
-            openers: ["what was your first job", "first job stories?", "anyone remember their first paycheck"],
+            openers: ["what was your first job", "first job stories?", "anyone remember their very first job"],
             answers: [
                 "fast food, the fryer still haunts me",
                 "babysitting",
@@ -674,7 +674,7 @@ enum ChatContent {
                 "mowing lawns",
                 "tutoring kids in math"
             ],
-            followUps: ["everyone's done food service at some point", "i spent my first paycheck on nothing useful"],
+            followUps: ["mine was folding clothes at a store", "i spent my first paycheck on nothing useful"],
             hostKeywords: ["job", "first", "paycheck", "worked", "career"]
         ),
         ChatTopic(
@@ -695,7 +695,7 @@ enum ChatContent {
                 "coastal town, very windy",
                 "college town"
             ],
-            followUps: ["small towns sound peaceful", "i'd love to live somewhere quieter"],
+            followUps: ["i've never lived anywhere but here", "i'd love to live somewhere quieter"],
             hostKeywords: ["city", "town", "live", "countryside", "village", "suburbs"]
         ),
         ChatTopic(
@@ -722,7 +722,7 @@ enum ChatContent {
         ChatTopic(
             id: "jc.social",
             scenes: ["Just chatting"],
-            openers: ["introvert or extrovert, chat", "how's everyone's social battery", "people person or nah"],
+            openers: ["introvert or extrovert, chat", "how social are you honestly", "people person or nah"],
             answers: [
                 "introvert, this chat is enough socializing",
                 "extrovert, i need people",
@@ -732,12 +732,12 @@ enum ChatContent {
                 "extrovert in the morning, introvert after 8",
                 "full introvert, phone on silent",
                 "i talk a lot online, not irl",
-                "fully recharged, slept all day",
+                "ambivert, if that's a real thing",
                 "fine until a group gets bigger than 4",
                 "depends on the people",
                 "extrovert, being alone makes me weird"
             ],
-            followUps: ["pretty much everyone here is an introvert lol", "same honestly"],
+            followUps: ["i'm an introvert who talks too much", "i'm drained after one phone call"],
             hostKeywords: ["introvert", "extrovert", "social", "people", "shy"]
         ),
         ChatTopic(
@@ -758,7 +758,7 @@ enum ChatContent {
                 "always finding parking",
                 "unlimited phone battery"
             ],
-            followUps: ["practical superpowers only i guess", "i'd still be late with teleporting"],
+            followUps: ["i'd want to breathe underwater", "i'd still be late with teleporting"],
             hostKeywords: ["superpower", "power", "powers", "hero"]
         ),
         ChatTopic(
@@ -780,7 +780,7 @@ enum ChatContent {
                 "sewing so i can fix my clothes",
                 "how to relax"
             ],
-            followUps: ["i keep starting things and stopping", "i want to learn all of these now"],
+            followUps: ["i keep starting things and stopping", "i want to learn to skate this year"],
             hostKeywords: ["learn", "learning", "skill", "teach", "goal"]
         )
     ]
@@ -806,7 +806,7 @@ enum ChatContent {
                 "controller with back paddles",
                 "fight stick for fighting games"
             ],
-            followUps: ["this argument never ends", "i switch depending on my mood"],
+            followUps: ["mouse for me, always has been", "i switch depending on my mood"],
             hostKeywords: ["controller", "keyboard", "mouse", "pad", "gamepad"]
         ),
         ChatTopic(
@@ -833,7 +833,7 @@ enum ChatContent {
         ChatTopic(
             id: "gm.settings",
             scenes: ["Late night gaming"],
-            openers: ["what's the first setting you change in a new game", "settings check, what do you always change", "anyone else spend 20 minutes in the options menu"],
+            openers: ["what's the first setting you change in a new game", "settings check, what do you always change", "options menu check, what goes first"],
             answers: [
                 "turn off motion blur immediately",
                 "invert y axis, sorry",
@@ -849,34 +849,34 @@ enum ChatContent {
                 "colorblind mode actually helps me",
                 "turn off the tutorial popups if i can"
             ],
-            followUps: ["motion blur is the enemy", "default settings people are brave"],
+            followUps: ["motion blur goes first for me", "i always end up resetting everything anyway"],
             hostKeywords: ["settings", "setting", "options", "sensitivity", "blur", "graphics"]
         ),
         ChatTopic(
             id: "gm.rage",
             scenes: ["Late night gaming"],
-            openers: ["has anyone actually broken something from gaming rage", "rage check, worst you've done", "what makes you rage quit"],
+            openers: ["what makes you rage quit", "what gets you the most tilted in a game", "rage check, what sets you off"],
             answers: [
-                "snapped a controller in half once",
-                "i just go quiet when i'm mad",
+                "input lag, i snapped a controller over it once",
+                "people who quit halfway through a match",
                 "laggy servers, every time",
                 "teammates who don't listen",
-                "threw a controller at my bed and it bounced off",
+                "bad hitboxes, i threw a controller at my bed over one",
                 "never rage, i just turn it off and stare",
                 "missing a jump i've done a hundred times",
                 "unskippable cutscenes before a hard part",
-                "i yell at the screen but that's it",
+                "bad camera angles, i yell at the screen every time",
                 "losing progress to a crash",
                 "escort missions",
                 "dying to the same thing twice in a row"
             ],
-            followUps: ["ok so it's not just me who yells", "crashes are the worst one"],
+            followUps: ["for me it's long loading screens", "i need a break from my current game honestly"],
             hostKeywords: ["rage", "quit", "angry", "mad", "tilt", "tilted"]
         ),
         ChatTopic(
             id: "gm.snacks",
             scenes: ["Late night gaming"],
-            openers: ["best snack for gaming", "what are you eating while you play", "gaming snack tier list, go"],
+            openers: ["best snack for gaming", "what are you eating while you play", "what's your go to gaming snack"],
             answers: [
                 "chips with chopsticks, keeps the controller clean",
                 "nothing, i forget to eat",
@@ -898,7 +898,7 @@ enum ChatContent {
         ChatTopic(
             id: "gm.latenight",
             scenes: ["Late night gaming"],
-            openers: ["latest you've ever stayed up gaming", "who else is gaming way past bedtime", "how late do you usually play"],
+            openers: ["latest you've ever stayed up gaming", "how late do you stay up gaming", "how late do you usually play"],
             answers: [
                 "sunrise once, never again",
                 "midnight is my limit now",
@@ -913,7 +913,7 @@ enum ChatContent {
                 "until the controller battery dies",
                 "never past 11, i need sleep"
             ],
-            followUps: ["one more match always turns into ten", "we all need sleep huh"],
+            followUps: ["one more match always turns into ten", "i should've been asleep an hour ago"],
             hostKeywords: ["late", "stay", "bedtime", "allnighter", "night"]
         ),
         ChatTopic(
@@ -935,7 +935,7 @@ enum ChatContent {
                 "fighting games",
                 "whatever my friends are playing"
             ],
-            followUps: ["cozy games at night are perfect", "i play basically everything"],
+            followUps: ["i've been stuck on puzzle games lately", "i play basically everything"],
             hostKeywords: ["genre", "rpg", "shooter", "kind", "type", "favorite"]
         )
     ]
@@ -961,7 +961,7 @@ enum ChatContent {
                 "i don't retry things, i move on",
                 "baking bread, attempt 12 was finally good"
             ],
-            followUps: ["stubborn is a personality trait at this point", "ok i feel better about my attempts now"],
+            followUps: ["i'm way too stubborn for my own good", "i'm at attempt 40 on something right now"],
             hostKeywords: ["attempts", "attempt", "tries", "try", "retry", "record"]
         ),
         ChatTopic(
@@ -1045,7 +1045,7 @@ enum ChatContent {
                 "i don't believe in luck but i still knock on wood",
                 "i stop chewing gum, don't know why"
             ],
-            followUps: ["everyone has one even if they deny it", "mine is not saying anything until it's done"],
+            followUps: ["i tap the desk twice, don't ask", "mine is not saying anything until it's done"],
             hostKeywords: ["lucky", "luck", "ritual", "superstition", "superstitious", "jinx"]
         ),
         ChatTopic(
@@ -1066,13 +1066,13 @@ enum ChatContent {
                 "i don't stop, i just switch to something else",
                 "when i start blaming everything but me"
             ],
-            followUps: ["having a hard stop sounds healthy", "i never know when to stop honestly"],
+            followUps: ["i stop when i get hungry, simple as that", "i never know when to stop honestly"],
             hostKeywords: ["quit", "stop", "give", "enough", "call"]
         ),
         ChatTopic(
             id: "ch.practice",
             scenes: ["One more attempt"],
-            openers: ["how do you practice something hard", "practice method, slow or full speed?", "do you practice parts or the whole thing"],
+            openers: ["how do you practice something hard", "what's your practice method", "how do you get better at the tricky parts"],
             answers: [
                 "just the hard part over and over",
                 "full runs only, that's how i learn",
@@ -1098,15 +1098,15 @@ enum ChatContent {
         ChatTopic(
             id: "ck.cleanup",
             scenes: ["Cooking & food"],
-            openers: ["clean as you go or clean after", "who does the dishes after cooking at your place", "cleanup while cooking or after?"],
+            openers: ["clean as you go or clean after", "when do you usually clean up after cooking", "cleanup while cooking or after?"],
             answers: [
                 "clean as i go, can't stand the mess",
                 "after, and then i regret it",
-                "whoever didn't cook",
+                "right after eating, can't relax otherwise",
                 "i leave it till morning",
                 "dishwasher does everything",
                 "i use one pan to avoid dishes",
-                "my roommate, we have a deal",
+                "while stuff simmers, if i remember",
                 "clean as i go but only the knives",
                 "i soak everything and forget about it",
                 "after, with music on",
@@ -1134,13 +1134,13 @@ enum ChatContent {
                 "a ghost pepper chip ruined my whole day once",
                 "it changes, some days i can't do any"
             ],
-            followUps: ["hot sauce people are scary", "i'm a medium person i think"],
+            followUps: ["i put hot sauce on eggs and that's my limit", "i'm a medium person i think"],
             hostKeywords: ["spicy", "spice", "chili", "pepper", "mild", "sauce"]
         ),
         ChatTopic(
             id: "ck.disaster",
             scenes: ["Cooking & food"],
-            openers: ["worst kitchen disaster you've had", "anyone ever set off the smoke alarm cooking", "kitchen fail stories?"],
+            openers: ["worst kitchen disaster you've had", "biggest cooking fail you've had", "kitchen fail stories?"],
             answers: [
                 "burned rice so bad i threw out the pot",
                 "smoke alarm every time i make toast",
@@ -1155,7 +1155,7 @@ enum ChatContent {
                 "baked cookies into one giant cookie",
                 "never had one, i don't really cook"
             ],
-            followUps: ["glad it's not just me", "my smoke alarm knows me personally"],
+            followUps: ["i once forgot pasta on the stove for an hour", "my smoke alarm knows me personally"],
             hostKeywords: ["disaster", "burned", "burnt", "fire", "mistake", "smoke"]
         ),
         ChatTopic(
@@ -1176,13 +1176,13 @@ enum ChatContent {
                 "i make the same five things",
                 "the recipe is a suggestion"
             ],
-            followUps: ["baking needs measuring though", "i'm a vibes cook and it shows"],
+            followUps: ["i follow recipes and still mess them up", "i'm a vibes cook and it shows"],
             hostKeywords: ["recipe", "recipes", "measure", "follow", "eyeball"]
         ),
         ChatTopic(
             id: "ck.leftovers",
             scenes: ["Cooking & food"],
-            openers: ["leftovers, love them or hate them", "do you actually eat your leftovers", "best thing to eat as leftovers?"],
+            openers: ["leftovers, love them or hate them", "do you actually eat your leftovers", "leftovers people or fresh every time"],
             answers: [
                 "curry is better the next day",
                 "i forget them until they're scary",
@@ -1197,7 +1197,7 @@ enum ChatContent {
                 "i freeze everything and never eat it",
                 "tacos the next day hit different"
             ],
-            followUps: ["the next day thing is real", "i have some in the fridge right now"],
+            followUps: ["leftover pizza is my whole diet this week", "i have some in the fridge right now"],
             hostKeywords: ["leftovers", "leftover", "reheat", "fridge", "microwave"]
         ),
         ChatTopic(
@@ -1225,7 +1225,7 @@ enum ChatContent {
         ChatTopic(
             id: "ck.cookfor",
             scenes: ["Cooking & food"],
-            openers: ["who do you usually cook for", "cooking for yourself or other people?", "anyone here cook for family every night"],
+            openers: ["who do you usually cook for", "cooking for yourself or other people?", "do you cook for anyone else"],
             answers: [
                 "just me, so lots of leftovers",
                 "family of five, it's a lot",
@@ -1251,7 +1251,7 @@ enum ChatContent {
         ChatTopic(
             id: "ir.walks",
             scenes: ["IRL & outdoors"],
-            openers: ["anyone else go on walks just to think", "favorite walking route?", "how far do you usually walk"],
+            openers: ["what's your usual walk like", "do you go on walks much", "walk check, where do you usually go"],
             answers: [
                 "around the block twice",
                 "along the river by my place",
@@ -1262,8 +1262,8 @@ enum ChatContent {
                 "treadmill, it's too cold outside",
                 "the long way to work",
                 "up a big hill near my house",
-                "i count steps, about 8k a day",
-                "only when my car is in the shop",
+                "8k steps a day around my neighborhood",
+                "only when my car's in the shop, to work and back",
                 "laps around my office building"
             ],
             followUps: ["might go for a walk tomorrow", "walking at night is the best time"],
@@ -1272,7 +1272,7 @@ enum ChatContent {
         ChatTopic(
             id: "ir.hotcold",
             scenes: ["IRL & outdoors"],
-            openers: ["would you rather be too hot or too cold", "hot weather or cold weather people?", "heat or cold, which is worse"],
+            openers: ["would you rather be too hot or too cold", "hot weather or cold weather people?", "heat or cold, which do you prefer"],
             answers: [
                 "cold, you can always add layers",
                 "hot, i hate being cold",
@@ -1287,7 +1287,7 @@ enum ChatContent {
                 "cold, the air feels clean",
                 "i complain either way"
             ],
-            followUps: ["this is the one debate chat never agrees on", "i'm cold right now so"],
+            followUps: ["i'm sweating right now so cold wins", "i'm cold right now so"],
             hostKeywords: ["heat", "warm", "temperature", "freezing", "humid"]
         ),
         ChatTopic(
@@ -1314,7 +1314,7 @@ enum ChatContent {
         ChatTopic(
             id: "ir.peoplewatch",
             scenes: ["IRL & outdoors"],
-            openers: ["anyone else love people watching", "people watching, yes or no", "best place to people watch?"],
+            openers: ["anyone else love people watching", "people watching, yes or no", "people watchers in chat?"],
             answers: [
                 "airports, nothing beats it",
                 "coffee shop window seat",
@@ -1350,7 +1350,7 @@ enum ChatContent {
                 "decent in cities, hopeless in forests",
                 "i follow the person in front of me"
             ],
-            followUps: ["honestly i'm lost half the time", "maps saved me so many times"],
+            followUps: ["honestly i'm lost half the time", "i'd be lost without my maps app"],
             hostKeywords: ["lost", "direction", "map", "maps", "navigate", "directions"]
         ),
         ChatTopic(
@@ -1371,7 +1371,7 @@ enum ChatContent {
                 "work boots",
                 "socks inside the house, does that count"
             ],
-            followUps: ["my feet hurt just reading this", "i need new shoes honestly"],
+            followUps: ["my feet hurt from today already", "i need new shoes honestly"],
             hostKeywords: ["shoes", "sneakers", "boots", "feet", "wear"]
         ),
         ChatTopic(
@@ -1392,7 +1392,7 @@ enum ChatContent {
                 "only when it's crowded",
                 "they're always dead when i need them"
             ],
-            followUps: ["i'm wearing mine right now", "silence while walking sounds nice actually"],
+            followUps: ["i'm wearing mine right now", "mine died this morning so it's just me and the street"],
             hostKeywords: ["headphones", "earbuds", "podcast", "podcasts", "earphones"]
         )
     ]
@@ -1418,13 +1418,13 @@ enum ChatContent {
                 "i don't practice, i just play songs i like",
                 "two short sessions a day"
             ],
-            followUps: ["noodling counts a little", "i need to be more consistent"],
+            followUps: ["i did 10 minutes today, proud of it", "i need to be more consistent"],
             hostKeywords: ["practice", "practicing", "daily", "hours", "session"]
         ),
         ChatTopic(
             id: "mu.first",
             scenes: ["Music & practice"],
-            openers: ["what was your first instrument", "anyone else start on recorder", "first instrument you ever played?"],
+            openers: ["what was your first instrument", "what did you start out playing", "first instrument you ever played?"],
             answers: [
                 "recorder in school like everyone",
                 "piano lessons at 7",
@@ -1440,7 +1440,7 @@ enum ChatContent {
                 "bass because no one else wanted it",
                 "harmonica"
             ],
-            followUps: ["recorder trauma is universal", "i miss playing honestly"],
+            followUps: ["mine was recorder, of course", "i miss playing honestly"],
             hostKeywords: ["instrument", "instruments", "first", "lessons", "started"]
         ),
         ChatTopic(
@@ -1482,7 +1482,7 @@ enum ChatContent {
                 "i mess up the easy parts, not the hard ones",
                 "it got better after a few times"
             ],
-            followUps: ["being nervous is normal i think", "i'd be terrified honestly"],
+            followUps: ["i get nervous playing for my cat", "i'd be terrified honestly"],
             hostKeywords: ["nervous", "stage", "perform", "audience", "scared", "fright"]
         ),
         ChatTopic(
@@ -1503,7 +1503,7 @@ enum ChatContent {
                 "numbers written over the notes, i'm a beginner",
                 "only what my teacher writes down for me"
             ],
-            followUps: ["tabs definitely count", "i wish i could do both"],
+            followUps: ["i can barely read music myself", "i wish i could do both"],
             hostKeywords: ["sheet", "ear", "notes", "tabs", "chords", "sight"]
         ),
         ChatTopic(
@@ -1524,7 +1524,7 @@ enum ChatContent {
                 "it went away eventually",
                 "my lips get tired, trumpet player"
             ],
-            followUps: ["my hands are tired just reading this", "taking breaks helps me i think"],
+            followUps: ["my fingertips are sore right now", "taking breaks helps me i think"],
             hostKeywords: ["fingers", "hands", "sore", "hurt", "pain", "calluses"]
         ),
         ChatTopic(
@@ -1577,7 +1577,7 @@ enum ChatContent {
         ChatTopic(
             id: "st.coffee",
             scenes: ["Focus & study"],
-            openers: ["how much coffee does studying take", "study fuel, coffee or tea?", "what keeps you awake when studying"],
+            openers: ["what's your study fuel", "late night study, what keeps you going", "what keeps you awake when studying"],
             answers: [
                 "two coffees minimum",
                 "tea, coffee makes me shaky",
@@ -1619,7 +1619,7 @@ enum ChatContent {
         ChatTopic(
             id: "st.breaks",
             scenes: ["Focus & study"],
-            openers: ["what do you do on study breaks", "break activities, what's yours", "how long are your breaks really"],
+            openers: ["what do you do on study breaks", "break activities, what's yours", "break time, what's the move"],
             answers: [
                 "5 minute break turns into an hour",
                 "walk around the house",
@@ -1661,7 +1661,7 @@ enum ChatContent {
         ChatTopic(
             id: "st.lyrics",
             scenes: ["Focus & study"],
-            openers: ["can you study with lyrics on", "music with words while studying, yes or no", "what do you listen to while you study"],
+            openers: ["what do you listen to while you study", "study soundtrack check, what's on", "lyrics or instrumental when you study"],
             answers: [
                 "no lyrics or i start singing",
                 "lyrics are fine if i know the song",
@@ -1682,7 +1682,7 @@ enum ChatContent {
         ChatTopic(
             id: "st.procrastinate",
             scenes: ["Focus & study"],
-            openers: ["what's your favorite way to procrastinate", "procrastination check, what are you avoiding", "how do you procrastinate"],
+            openers: ["what's your favorite way to procrastinate", "procrastination check, what's your method", "how do you procrastinate"],
             answers: [
                 "cleaning my whole room suddenly",
                 "watching streams, obviously",
@@ -1697,7 +1697,7 @@ enum ChatContent {
                 "rearranging my desk",
                 "watching videos about productivity"
             ],
-            followUps: ["well i'm literally doing it right now", "we're all avoiding something huh"],
+            followUps: ["well i'm literally doing it right now", "i have an essay open in another tab"],
             hostKeywords: ["procrastinate", "procrastinating", "procrastination", "avoid", "avoiding", "lazy"]
         )
     ]
@@ -1742,12 +1742,10 @@ enum ChatContent {
         "Laugh.quick": ["LMAO STOP", "HAHAHA", "i'm dead", "😂", "omg lol", "screaming", "bahaha", "too good", "lmaoo ok", "stoppp", "LOLLL", "hahaha what"],
         "Win": [
             "wait did that actually work",
-            "you earned that one",
-            "called it, knew you had it",
+            "let's go, nice one",
             "i jumped off my couch",
             "was that first try?",
             "ok that was impressive",
-            "my heart rate went up for that",
             "chat we witnessed something",
             "i clapped alone in my room",
             "never doubted you, mostly",
@@ -1755,33 +1753,31 @@ enum ChatContent {
             "how did you pull that off",
             "i'm still processing that",
             "someone clip that please",
-            "about time, nice job",
-            "all that effort paid off",
-            "i had a feeling it would go well",
-            "did not expect that, nice"
+            "did not expect that, nice",
+            "love to see it honestly",
+            "gg, well played",
+            "ok that one was clean"
         ],
-        "Win.quick": ["GG", "lets go", "clean", "EZ", "huge W", "nailed it", "WOOO", "finally", "gg wp", "so clean", "ayyy", "YOU DID IT"],
+        "Win.quick": ["GG", "lets go", "clean", "huge W", "nailed it", "WOOO", "gg wp", "so clean", "ayyy", "YOU DID IT", "nice!!", "omg yes"],
         "Fail": [
-            "oh no, so close",
             "that hurt to watch",
-            "ouch, you had it",
             "it's fine, nobody saw that",
             "i felt that in my soul",
             "deep breath, next one",
             "well, that sure happened",
-            "that one's not on you",
             "rip, we go again",
             "ok that one was rough",
-            "i'd have given up already",
-            "the universe said no today",
+            "not this time i guess",
             "we'll pretend that didn't happen",
             "i covered my eyes for that",
             "that's going in the blooper reel",
             "my condolences, truly lol",
-            "you were right there too",
-            "that was cursed honestly"
+            "that was cursed honestly",
+            "unlucky, shake it off",
+            "oof, that's how it goes sometimes",
+            "f in the chat"
         ],
-        "Fail.quick": ["oof", "rip", "F", "nooo", "so close", "next time", "almost", "ouchie", "noo why", "rip lol", "classic", "it's ok"],
+        "Fail.quick": ["oof", "rip", "F", "nooo", "next time", "ouchie", "noo why", "rip lol", "it's ok", "next one", "rough one"],
         "Debate": [
             "ok i have opinions about this",
             "chat is split on this one",
@@ -1823,55 +1819,54 @@ enum ChatContent {
         ],
         "BRB.quick": ["take your time", "ok see ya", "we wait", "no rush", "brb too", "go go", "we'll be here", "👋", "stretch time", "snack break"],
         "Back": [
-            "welcome back, we missed you",
-            "that was quick, nice",
-            "back already? that was fast",
+            "oh hey, welcome back",
             "chat was very well behaved, promise",
-            "you didn't miss anything, don't worry",
             "did you bring snacks",
-            "wb, what did you grab",
+            "wb, did you grab anything good",
             "ok we're back in business",
             "perfect timing, i just got back too",
             "we talked about you, all good things",
             "everyone sit back down",
             "ok where were we",
             "did you get water at least",
-            "chat almost fell asleep without you",
-            "good, i was getting bored"
+            "welcome back, all good?",
+            "wb, we kept your seat warm",
+            "yay you're back",
+            "hey, good to have you back",
+            "back to it then"
         ],
-        "Back.quick": ["wb", "welcome back", "yay", "hey again", "there they are", "about time", "they're back", "wooo hi", "re hi", "oh good"],
+        "Back.quick": ["wb", "welcome back", "yay", "hey again", "there they are", "they're back", "wooo hi", "re hi", "oh good", "yo wb"],
         "Smile detected": [
             "ok that smile though",
             "what's got you smiling",
-            "ok who said something funny",
             "something going right today?",
             "smiling at chat or at your phone?",
-            "i saw that smile, don't hide it",
-            "secret smile, what are we missing",
+            "i saw that smile",
+            "what are we missing over there",
             "good news or something?",
             "smiling makes me smile too",
             "did someone text you something nice?",
             "caught you grinning there",
-            "ok now i'm curious, why the smile"
+            "ok now i'm curious, why the smile",
+            "was that a smile?",
+            "ooh, a smile"
         ],
-        "Smile detected.quick": ["😊", ":)", "smiley", "awww", "that grin", "😄", ":D", "happy vibes", "hehe", "big smile"],
+        "Smile detected.quick": ["😊", ":)", "smiley", "awww", "that grin", "😄", ":D", "hehe", "big smile"],
         "Face out of frame": [
             "hey, where'd you go?",
-            "did you leave us?",
+            "still with us?",
             "hello? is anyone there?",
             "we lost you for a sec",
             "just us and the background now",
             "are you still there?",
             "chat, they just vanished",
-            "talking to an empty frame here",
             "turned away from the camera?",
             "is the camera pointed somewhere else?",
-            "just the room now lol",
+            "can't see you right now",
             "did something happen off camera?",
             "are you hiding from chat?",
             "camera shy all of a sudden?",
-            "hope everything's ok over there",
-            "guess we wait then"
+            "hope everything's ok over there"
         ],
         "Face out of frame.quick": ["u there?", "??", "where'd they go", "gone", "uh oh", "helloooo", "ghost mode", "lost them", "anyone?", "👀"],
         "Face in frame": [
@@ -1880,112 +1875,96 @@ enum ChatContent {
             "ok we can see you again",
             "welcome back to the frame",
             "and they're back on camera",
-            "hi again, missed your face",
+            "hi again lol",
             "there's the face we know",
             "back in the shot, nice",
             "ah, you came back to us",
             "camera found you again",
             "oh hi, didn't see you come back",
             "good, we're not alone anymore",
-            "phew, thought you left",
-            "you were gone for a bit there"
+            "phew, thought you left"
         ],
         "Face in frame.quick": ["there you are", "found you", "hii", "oh hey", "peekaboo", "hello again", "welcome", "spotted", "ayy hi", "hi face"],
         "Camera movement": [
-            "whoa, where are we going",
-            "camera is moving, what's happening",
-            "little earthquake there lol",
-            "did the camera fall?",
-            "are you moving the phone?",
-            "the view just changed, where are we",
-            "getting a little dizzy lol",
-            "are we going on a tour?",
-            "steady camera please, my stomach",
-            "did you bump it?",
-            "new angle, i like it",
-            "ok what are you showing us",
-            "are you walking somewhere?",
-            "careful with the camera there",
+            "the picture moved, what's happening",
+            "the view just changed",
+            "new angle? i like it",
             "is something going on over there?",
-            "whoa that was a lot of movement"
+            "whoa, something moved",
+            "wait, what was that",
+            "what just happened there",
+            "all good over there?",
+            "that looked different for a sec",
+            "huh, the shot moved",
+            "did i miss something? the view changed",
+            "hm, different view now",
+            "what was that movement about"
         ],
-        "Camera movement.quick": ["wheee", "dizzy", "zoom", "earthquake", "😵", "where to?", "shaky cam", "steady!", "tour time", "woah"],
+        "Camera movement.quick": ["woah", "new angle?", "hmm?", "whoa ok", "different view", "what moved?", "oh, new view"],
         "Pet in view": [
             "wait, is that a pet back there?",
             "is that a cat or a dog? can't tell",
             "wait, do i spot a floof?",
-            "who is that little creature",
-            "pet tax has been paid",
-            "that's a cute floof, whatever it is",
-            "the pet wants attention",
-            "give the floof a scratch from me",
-            "the real star just showed up",
-            "chat, we have a visitor",
-            "is the floof friendly?",
-            "what's the pet's name?",
-            "more of the floof please",
-            "my dog would love to meet them",
-            "four legs spotted, need confirmation",
-            "how old is the pet?",
-            "does the pet always join the stream?"
+            "if that's a pet, give it a scratch from me",
+            "chat, do we have a visitor?",
+            "is that your pet? what's their name",
+            "is that four legs i see?",
+            "something furry in the corner?",
+            "do you have a pet or am i seeing things",
+            "did a pet just wander in?",
+            "hold on, is there an animal in the shot?",
+            "is that a pet or a pillow lol",
+            "pet sighting? need a better look"
         ],
-        "Pet in view.quick": ["FLOOF", "pet!!", "cutie", "omg pet", "floof alert", "hi pet", "🐾", "pet tax", "baby!!", "smol"],
+        "Pet in view.quick": ["pet?", "floof?", "omg pet?", "wait, pet?", "is that a pet", "animal?", "a floof??"],
         "Food in view": [
-            "wait what are you eating",
             "is that food i see?",
-            "what's on the plate",
-            "that looks good, what is it",
+            "what's that in the shot, food?",
+            "ooh, is that something to eat?",
             "is it snack time already?",
-            "i'm hungry now, thanks",
-            "share with chat please",
-            "did you cook that yourself?",
-            "what kind of food is that",
-            "now i want snacks too",
-            "is that dinner or a snack?",
             "i can't tell what it is but i want it",
-            "eating on camera, bold move",
-            "what are we having tonight",
-            "is that homemade or takeout?",
-            "how does it taste?"
+            "wait, is that a snack?",
+            "what's that next to you?",
+            "dinner time? or is that something else",
+            "food in the shot? now i'm curious",
+            "can't quite see, is that food?",
+            "that looks like food from here",
+            "snack break or am i wrong",
+            "hold on, is that a plate?"
         ],
-        "Food in view.quick": ["yum", "food!", "hungry now", "mmm", "share", "nom", "jealous", "😋", "what is it", "snack?"],
+        "Food in view.quick": ["food?", "snack?", "what is it", "is that food", "ooh, food?", "dinner?", "what's that"],
         "Outdoor view": [
             "wait, are you outside?",
-            "ooh, fresh air stream",
             "outside? where are we",
             "is it cold out there?",
-            "going on an adventure?",
-            "outdoor stream, nice change",
             "what's the weather doing there?",
-            "touching grass today i see",
-            "be careful out there",
-            "where are you headed?",
             "is it windy there?",
-            "now i want to go outside too",
-            "irl time? where to",
             "is it nice out over there?",
-            "how far are you going?",
-            "anyone else around out there?"
+            "anyone else around out there?",
+            "is that a window or are you outdoors?",
+            "that looks like outside, am i right",
+            "is that daylight back there?",
+            "fresh air stream?",
+            "sky in the background?",
+            "hm, are we outdoors?"
         ],
-        "Outdoor view.quick": ["outside!", "fresh air", "irl!", "ooh outside", "adventure", "nature", "grass!", "touch grass", "🌳", "outdoors?"],
+        "Outdoor view.quick": ["outside?", "outdoors?", "ooh, outside?", "irl?", "fresh air?", "is that outside", "sky?"],
         "Instrument in view": [
             "wait, is that an instrument?",
             "are you going to play something?",
-            "what instrument is that exactly?",
-            "have you had it long?",
             "is it concert time now?",
-            "i used to play something like that",
             "do you take requests or nah",
-            "is that yours or borrowed?",
             "can't hear anything yet but i'm ready",
             "music break? i'm in",
             "i wish i could play anything at all",
-            "wait i didn't know you played",
             "is that a guitar or something else?",
-            "is practice happening tonight?",
-            "ooh, are you practicing something?"
+            "practice time, maybe?",
+            "ooh, are you practicing something?",
+            "is that something you play?",
+            "what's the thing in the back, an instrument?",
+            "do you play, or is that just decor?"
         ],
-        "Instrument in view.quick": ["music!", "play!", "ooh music", "🎵", "concert?", "jam time", "play something", "🎶", "yes music", "song?"]
+        "Instrument in view.quick": ["concert?", "song?", "play something?", "instrument?", "music time?", "guitar?", "ooh, music?"]
     ]
 
     // MARK: - Replies to the host
@@ -1994,11 +1973,11 @@ enum ChatContent {
         "yes": ["yes do it", "honestly yes", "yep yep", "100% yes", "i'd say yes", "yes obviously", "sure, why not", "go for it", "yeah i think so", "absolutely", "yes yes yes", "def yes", "i vote yes", "easy yes", "yeah no doubt"],
         "no": ["no", "nope, don't", "i'd say no", "probably not", "hard no", "no way lol", "not a chance", "nah, skip it", "please no", "honestly no", "i vote no", "no thanks", "eh, no", "definitely not", "no lol"],
         "unsure": ["depends", "maybe?", "not sure tbh", "could go either way", "hmm hard to say", "50/50", "ask me later", "idk honestly", "maybe, maybe not", "kinda?", "no clue", "kinda depends on my mood", "i'm torn", "sort of?", "let me think"],
-        "open": ["hmm good question", "no idea honestly", "what do you think?", "pass", "ask me again after coffee", "oh that's a tough one", "uhh", "give me a minute on that one", "never thought about it", "you first", "i'll get back to you", "chat?", "my brain is off, sorry", "that's a whole conversation", "i have thoughts but they're messy", "good one, i need to think"],
-        "greeting": ["hey, how's your day", "hi there :)", "yo what's up", "hiya", "hey hey hey", "hi again", "good evening!", "good to see you", "hey there", "hi from work", "hey, just got here", "hellooo", "heyy", "hi hi"],
+        "open": ["hmm good question", "no idea honestly", "pass", "ask me again after coffee", "oh that's a tough one", "uhh", "give me a minute on that one", "never thought about it", "you first", "i'll get back to you", "my brain is off, sorry", "that's a whole conversation", "i have thoughts but they're messy", "good one, i need to think"],
+        "greeting": ["hey, how's your day", "hi there :)", "yo what's up", "hiya", "hey hey hey", "good to see you", "hey there", "hellooo", "heyy", "hi hi", "hello there", "hey, what's good", "hi :D"],
         "howAreYou": ["tired but good", "pretty good, you?", "can't complain", "doing alright", "long day but ok", "good actually!", "meh, it's fine", "sleepy", "better now", "hungry lol", "not bad, how about you?", "surviving", "great, day off today", "ok i guess", "stressed but fine"],
-        "thanks": ["no thank you", "aw ok", "thank you too", "glad to hang out", "for sure", "no need to thank us", "hey no problem", "we're happy to be here", "it's mutual", "you're welcome!", "of course", "aww", "thanks for having us", "yeah of course", "cheers"],
-        "bye": ["night!", "this was fun", "bye!", "see you next time", "night night", "take care", "byeee", "good stream", "see ya", "until next time", "sleep well", "later!", "already? ok bye", "catch you tomorrow maybe", "o7 night"],
+        "thanks": ["aww", "cheers", "wholesome", "🙏", "aw that's sweet", "🫶", "aw ok", "sweet", "🥹", "aw shucks", "lovely", "much love", "ok that's wholesome"],
+        "bye": ["bye!", "see you next time", "take care", "byeee", "see ya", "until next time", "later!", "bye bye", "cya", "have a good one", "o7 bye", "ok, take it easy", "catch you later", "peace", "see you around"],
         "statement": ["fair", "valid", "that's fair honestly", "true", "makes sense to me", "can't argue with that", "i get that", "hm ok", "same here", "fair enough", "agree honestly", "yeah that tracks", "interesting take", "i kinda agree", "ok noted", "huh, fair", "respect"],
         "choice": ["both", "neither", "both obviously", "depends on the day", "why not both", "the first one probably", "the second one", "can't pick", "whichever is easier", "both are good honestly", "flip a coin", "ask me tomorrow", "whatever you feel like", "chat will fight about this", "hmm tough call", "no wrong answer"],
         "nonEnglish": ["wait what does that mean", "translate pls?", "no idea what that says but ok", "i don't speak that, sorry", "english pls? lol", "that went over my head", "can someone translate", "i caught zero words of that", "ok i'll pretend i understood", "cool, i think?", "what language is that?", "i'll just nod along", "my translator gave up", "looks nice whatever it means"]
@@ -2050,7 +2029,7 @@ enum ChatContent {
         "One more attempt": [
             "how many attempts so far?",
             "what's the goal tonight?",
-            "how long have you been at this?",
+            "been at this one long?",
             "are you stopping after the next one?",
             "do you have a set number of tries tonight?",
             "what's the hardest part so far?",
@@ -2112,7 +2091,7 @@ enum ChatContent {
 
     static let tipNotes: [String: [String]] = [
         "any": ["for the coffee fund", "small one, have a good night", "first time tipping, hi", "keep it up", "just because", "thanks for the company", "for snacks", "been lurking for weeks, here", "here you go", "treat yourself to something", "for the late night", "happy friday or whatever day it is", "don't spend it all at once", "no reason", "a little something", "quiet lurker, quick tip"],
-        "Win": ["for that win", "earned it", "gg, take this", "knew you'd get it", "victory tip", "that was worth it"],
+        "Win": ["for that win", "nice one, here", "gg, take this", "for the W", "victory tip", "that was worth it"],
         "Fail": ["for the next try", "you'll get it", "unlucky, here's something", "consolation prize", "shake it off", "that one hurt, here"],
         "big": ["saved up for this one", "because why not", "go do something nice with it", "for the whole week of streams", "had a good month, sharing", "don't make a big deal of it lol", "for all the hours", "for upgrades or whatever"],
         "return": ["me again", "back with another", "still here, still tipping", "regular reporting in", "again, no reason"],
