@@ -327,7 +327,7 @@ struct LiveView: View {
                     .overlay(alignment: .bottom) {
                         if !followChat && unseen > 0 {
                             Button { followChat = true } label: {
-                                Label(unseen == 1 ? "1 new message" : "\(min(unseen, 99))\(unseen > 99 ? "+" : "") new messages", systemImage: "arrow.down")
+                                Label(newMessagesLabel, systemImage: "arrow.down")
                                     .font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8).background(accent, in: Capsule())
                             }.tint(.white).padding(.bottom, 8)
                         }
@@ -398,6 +398,11 @@ struct LiveView: View {
             }.navigationTitle("Creator studio").navigationBarTitleDisplayMode(.inline).tint(accent)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showEvents = false } } }
         }
+    }
+    private var newMessagesLabel: String {
+        if unseen == 1 { return "1 new message" }
+        let count = unseen > 99 ? "99+" : String(unseen)
+        return count + " new messages"
     }
     private var time: String {
         let s = Int(store.engine.elapsed)
@@ -535,7 +540,7 @@ struct DiagnosticsView: View {
         Form {
             Section("Apple Intelligence") {
                 LabeledContent("System", value: d.system)
-                LabeledContent("Model state", value: d.availability.ready ? "Available" : "Unavailable")
+                LabeledContent("Model state", value: stateText(d))
                 Text(d.availability.detail).font(.caption).foregroundStyle(.secondary)
                 Text(d.languages).font(.caption).foregroundStyle(.secondary)
                 Button(d.testRunning ? "Testing…" : "Run a quick English test") { store.runModelTest() }.disabled(d.testRunning)
@@ -563,10 +568,15 @@ struct DiagnosticsView: View {
                 if let median = EngineMetrics.median(m.reactionDelays) {
                     LabeledContent("Reactions to moments · median", value: String(format: "%.1f s", median))
                 }
-                let dropped = DropReason.allCases.map { "\($0.rawValue) \(m.dropped[$0] ?? 0)" }.joined(separator: " · ")
-                Text("Cancelled before showing: " + dropped).font(.caption).foregroundStyle(.secondary)
+                Text(droppedSummary(m)).font(.caption).foregroundStyle(.secondary)
                 Text("Counts and timings only. No camera frames, audio or your messages are stored.").font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
+    }
+    private func stateText(_ d: ModelDiagnostics) -> String { d.availability.ready ? "Available" : "Unavailable" }
+    private func droppedSummary(_ m: EngineMetrics) -> String {
+        var parts: [String] = []
+        for reason in DropReason.allCases { parts.append(reason.rawValue + " " + String(m.dropped[reason] ?? 0)) }
+        return "Cancelled before showing: " + parts.joined(separator: " · ")
     }
 }

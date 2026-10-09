@@ -6,6 +6,7 @@ jobs:
   engine-tests:
     name: Engine tests (Swift on Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: swift:6.1-noble
     steps:
       - uses: actions/checkout@v4
@@ -16,6 +17,7 @@ jobs:
   ios-build:
     name: iOS build (Xcode, unsigned)
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
@@ -26,9 +28,16 @@ jobs:
           xcodebuild -showsdks | grep -i ios || true
       - name: Build for generic iOS device
         run: |
-          set -o pipefail
+          set +e
           xcodebuild -project StreamLab.xcodeproj -scheme StreamLab -configuration Debug \
             -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO build | tail -40
+            CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=400' \
+            build > build.log 2>&1
+          status=$?
+          grep -E "error:|warning: .*(type-check|deprecated)|BUILD (SUCCEEDED|FAILED)" build.log | sort -u | head -80
+          tail -5 build.log
+          exit $status
       - name: Engine checks with Apple toolchain
-        run: sh test-engine.sh | tail -5
+        run: |
+          set -o pipefail
+          sh test-engine.sh | grep -E "FAIL|Final|Offline hour|Host reply"

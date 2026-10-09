@@ -4,6 +4,7 @@ import Foundation
 // nicknames now return (persistent participants, A1), round tip amounts may repeat (B4),
 // short reactions like "lol" may repeat (A4), and nothing reacts in the same update as its cause (A6).
 
+setvbuf(stdout, nil, _IOLBF, 0)
 var checks = 0
 func check(_ value: @autoclosure () -> Bool, _ name: String) {
     guard value() else { fatalError("FAIL: \(name)") }
@@ -83,7 +84,8 @@ var allLines: [String] = ChatContent.thanksReplies
 for topic in topics { allLines += topic.openers; allLines += topic.answers; allLines += topic.followUps }
 let pools: [[String: [String]]] = [ChatContent.short, ChatContent.events, ChatContent.hostReplies, ChatContent.viewerToHost, ChatContent.presence, ChatContent.tipNotes, ChatContent.giftReactions]
 for pool in pools { for lines in pool.values { allLines += lines } }
-let invalid = allLines.filter { !TextMemory.valid($0, maxLength: 140) || $0.contains("$") }
+// Single emoji or "W"/"F" are normal chat; the two-character minimum applies to model output.
+let invalid = allLines.filter { !(TextMemory.valid($0, maxLength: 140) || ($0.count == 1 && !$0.contains("<"))) || $0.contains("$") }
 if !invalid.isEmpty { print("Invalid lines: \(invalid.prefix(5))") }
 check(invalid.isEmpty, "All authored lines are valid single chat lines without amounts")
 for scene in Scenario.allCases where scene != .automatic {
