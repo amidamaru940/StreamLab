@@ -16,6 +16,8 @@ struct ModelDiagnostics {
     var lastErrorAt: Date?
     var testRunning = false
     var testResult: String?
+    var translation = HostTranslator.Status()
+    var translations = 0, translationFailures = 0
     var system: String { "iOS " + ProcessInfo.processInfo.operatingSystemVersionString }
 }
 
@@ -26,6 +28,8 @@ struct ModelDiagnostics {
     private var nextWritingAllowed = -Double.infinity
     private var failureStreak = 0
     private var lastAvailabilityCheck = -Double.infinity
+    private var lastTranslationCheck = -Double.infinity
+    private var translationCheckRunning = false
     private var lastCommunitySave = ProcessInfo.processInfo.systemUptime
     private var timer: AnyCancellable?
     private var lastTick = ProcessInfo.processInfo.systemUptime
@@ -69,8 +73,22 @@ struct ModelDiagnostics {
         engine = Simulation(settings: engine.settings, community: Self.loadCommunity())
         engine.prepare()
         nextWritingAllowed = -.infinity; failureStreak = 0
-        let availability = diagnostics.availability, languages = diagnostics.languages
-        diagnostics = ModelDiagnostics(); diagnostics.availability = availability; diagnostics.languages = languages
+        let availability = diagnostics.availability, languages = diagnostics.languages, translation = diagnostics.translation
+        diagnostics = ModelDiagnostics(); diagnostics.availability = availability; diagnostics.languages = languages; diagnostics.translation = translation
+        engine.setModelActive(availability.ready); engine.setTranslationAvailable(translation.ready)
+    }
+    /// Host text goes to the engine; text in another language is first translated on this iPhone if it can be.
+    func send(_ text: String) {
+        guard let waiting = engine.send(text) else { return }
+        let original = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        let installed = diagnostics.translation.installed
+        Task { [weak self] in
+            var english: String?
+            do { english = try await HostTranslator.translate(original, installed: installed) } catch { english = nil }
+            guard let self else { return }
+            if english == nil { self.diagnostics.translationFailures += 1 } else { self.diagnostics.translations += 1 }
+            self.engine.hostTranslation(english, for: waiting)
+        }
     }
     func stopWriting() { writingTask?.cancel(); writingTask = nil }
     func endStream() { engine.end(); stopWriting(); saveCommunity() }
@@ -100,9 +118,24 @@ struct ModelDiagnostics {
         }
     }
     func refreshAvailability() {
-        lastAvailabilityCheck = ProcessInfo.processInfo.systemUptime
+        let now = ProcessInfo.processInfo.systemUptime
+        lastAvailabilityCheck = now
         diagnostics.availability = LocalChatWriter.availability(pauseInLowPower: engine.settings.pauseModelInLowPower)
+        engine.setModelActive(diagnostics.availability.ready)
+        // Language packs change outside the app, so this is re-checked now and then.
+        if !translationCheckRunning && now - lastTranslationCheck >= 30 {
+            translationCheckRunning = true; lastTranslationCheck = now
+            Task { [weak self] in
+                let status = await HostTranslator.status()
+                guard let self else { return }
+                self.diagnostics.translation = status
+                self.engine.setTranslationAvailable(status.ready)
+                self.translationCheckRunning = false
+            }
+        }
     }
+    /// The Diagnostics screen asks again right away (e.g. after downloading a language in the Translate app).
+    func refreshTranslation() { lastTranslationCheck = -.infinity; refreshAvailability() }
     private func refreshWriting(now: Double) {
         // Availability is reported even before Go live or while paused; only generation waits for a running stream.
         if now - lastAvailabilityCheck >= 3 { refreshAvailability() }
@@ -113,7 +146,8 @@ struct ModelDiagnostics {
         // E2: small, frequent requests. Generation does not delay chat: lines are already scheduled with library text.
         guard diagnostics.availability.ready, writingTask == nil, now >= nextWritingAllowed,
               let request = engine.makeWritingRequest() else { return }
-        nextWritingAllowed = now + 4
+        // A request is small; the next one may follow soon so replies to the host get worded in time.
+        nextWritingAllowed = now + 1.5
         diagnostics.requests += 1
         writingTask = Task { [weak self] in
             let started = ProcessInfo.processInfo.systemUptime
@@ -379,7 +413,7 @@ struct LiveView: View {
         HStack(spacing: 10) {
             TextField(composerPlaceholder, text: $draft, axis: .vertical)
                 .font(.subheadline).lineLimit(1...2).onChange(of: draft) { _, value in draft = String(value.prefix(200)) }
-            Button { store.engine.send(draft); draft = "" } label: { Image(systemName: "paperplane.fill").frame(width: 40, height: 40).foregroundStyle(accent) }
+            Button { store.send(draft); draft = "" } label: { Image(systemName: "paperplane.fill").frame(width: 40, height: 40).foregroundStyle(accent) }
                 .accessibilityLabel("Send message").disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }.disabled(!store.engine.running).padding(.leading, 12).background(surface, in: RoundedRectangle(cornerRadius: 8)).padding(.horizontal, 12).padding(.vertical, 8)
     }
@@ -556,8 +590,8 @@ struct SettingsView: View {
                     Text("Optional scripted moments run every 50 seconds. Leave this off when following your real camera.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Audience") {
-                    Picker("Room size", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.rawValue).tag($0) } }
-                    Text("Chat activity changes right away; the starting number of viewers applies from the next stream. A small room is calmer, a large one busier.").font(.caption).foregroundStyle(.secondary)
+                    Picker("Room mood", selection: $settings.audienceSize) { ForEach(AudienceSize.allCases) { Text($0.title).tag($0) } }
+                    Text("A stream opens with a few viewers; more arrive over the first few minutes and the count then stays between about 1,500 and 1,870. Room mood only changes how busy the chat is.").font(.caption).foregroundStyle(.secondary)
                     Text("Chat pace · about \(Int(settings.messagesPerMinute))/min")
                     Slider(value: $settings.messagesPerMinute, in: 2...90, step: 1)
                     Text("Mixed voices are automatic: casual chat, questions, humour, support and occasional disagreement. Recent wording is checked for close repeats.").font(.caption).foregroundStyle(.secondary)
@@ -647,6 +681,14 @@ struct DiagnosticsView: View {
                 Button(d.testRunning ? "Testing…" : "Run a quick English test") { store.runModelTest() }.disabled(d.testRunning)
                 if let result = d.testResult { Text(result).font(.caption) }
             }
+            Section("Your language") {
+                LabeledContent("On-device translation", value: d.translation.ready ? "Ready" : "Off")
+                Text(d.translation.detail).font(.caption).foregroundStyle(.secondary)
+                if d.translations + d.translationFailures > 0 {
+                    LabeledContent("Translated / not translated", value: "\(d.translations) / \(d.translationFailures)")
+                }
+                Text("Without translation, viewers answer messages they cannot read rarely and vaguely.").font(.caption).foregroundStyle(.secondary)
+            }
             Section("During this session") {
                 LabeledContent("Requests", value: "\(d.requests)")
                 LabeledContent("Succeeded / failed", value: "\(d.successes) / \(d.failures)")
@@ -673,7 +715,7 @@ struct DiagnosticsView: View {
                 Text("Counts and timings only. No camera frames, audio or your messages are stored.").font(.caption).foregroundStyle(.secondary)
             }
         }.navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
-            .onAppear { store.refreshAvailability() }
+            .onAppear { store.refreshTranslation() }
     }
     private func stateText(_ d: ModelDiagnostics) -> String { d.availability.code == "checking" ? "Not checked yet" : d.availability.ready ? "Available" : "Unavailable" }
     private func droppedSummary(_ m: EngineMetrics) -> String {

@@ -87,12 +87,13 @@ enum Scenario: String, CaseIterable, Codable, Identifiable {
         }
     }
 }
-/// A7: how big the room is. Viewers, active chatters and chat speed follow from it.
+/// A7: how lively the room is. Since 6.1 the viewer count itself always settles between about
+/// 1,500 and 1,872 (owner's request); this setting only changes how busy the chat is.
+/// Raw values stay as they were so saved settings keep decoding.
 enum AudienceSize: String, CaseIterable, Codable, Identifiable {
     case small = "Small room", medium = "Medium", large = "Large"
     var id: String { rawValue }
-    /// Median starting viewers and the spread around it.
-    var startMedian: Double { self == .small ? 110 : self == .medium ? 700 : 4200 }
+    var title: String { self == .small ? "Calm" : self == .medium ? "Normal" : "Busy" }
     var activityScale: Double { self == .small ? 0.55 : self == .medium ? 1 : 1.25 }
 }
 struct Settings: Codable {
@@ -271,12 +272,16 @@ struct Simulation {
     private var lastMomentFromCamera = false
     private var lastCameraEvent: StreamEvent?
     private var breakStartedAt = -1000.0, lastFaceAwayAt = -1000.0
-    private var baseViewers = 0
+    /// Viewer count: small at Go live, climbs over a few minutes, then wanders inside `viewerBand`.
+    private var viewerLevel = 1690.0, viewerDrift = 0.0, viewerBump = 0.0
+    private var rampFrom = 0.0, rampDuration = 300.0
+    private(set) var viewersSettled = false
+    private var warmingUp = false
     private var sceneCommented: [VisualScene: Double] = [:]
     private var manualOverrideUntil = -1000.0, cameraEventUntil = -1000.0
     private var cameraContextActive = false
     private var eventEpoch = 0
-    private var step = 0, audienceTarget: Int
+    private var step = 0
     private var budget = 0.0, pace = 1.0
     private var idleSince: Double?
     private var topicUse: [String: TopicUse] = [:]
@@ -296,24 +301,48 @@ struct Simulation {
     private var debatesUsed: Set<Int> = []
     private var nextPollAllowed = 0.0, nextHostQuestionAllowed = 0.0
     private var lastDeliveryAt = 0.0, quietLimit = 25.0
+    /// True while Apple's on-device model is available and switched on; set by the app.
+    private(set) var modelActive = false
+    /// True when the app can translate host text into English on the device.
+    private(set) var translationAvailable = false
+    /// Things that really happened in this stream, for the model's memory (A3). Never invented.
+    private var memoryNotes: [(text: String, at: Double)] = []
+    private var aiTopics: [ChatTopic] = []
+    private var aiTopicByID: [String: ChatTopic] = [:]
+    private var lastAmbientRequest = -1000.0
+    /// Non-English host messages waiting for an on-device translation before chat reacts.
+    private var awaitingTranslation: [UUID: Double] = [:]
     private var templateUsedAt: [String: Double] = [:]
     private var contentClock = 1000.0
     private var lastModelDelivery = -10000.0
     /// E6: when only the offline library is writing, chat paces itself so it lasts instead of running dry.
     private(set) var libraryRateCap: Double = .infinity
 
-    init(settings: Settings = Settings(), seed: UInt64 = UInt64.random(in: 0...UInt64.max), community: [Participant]? = nil) {
+    /// The viewer range the owner asked for (6.1): after the opening minutes the count stays inside it.
+    static let viewerBand = 1500...1872
+
+    /// `openingRamp` false starts with the room already full (used by checks of mid-stream behaviour).
+    init(settings: Settings = Settings(), seed: UInt64 = UInt64.random(in: 0...UInt64.max), community: [Participant]? = nil, openingRamp: Bool = true) {
         self.settings = settings; self.settings.normalize()
         var random = StreamRandom(state: seed)
         audience = Audience(restoring: community, using: &random)
-        // A7: the room does not always open at the same size.
-        let start = Int(self.settings.audienceSize.startMedian * random.logNormal(sigma: 0.5))
-        viewers = min(11000, max(25, start)); audienceTarget = viewers; baseViewers = viewers
+        // The level the room settles at differs per stream; drift around it stays inside the band.
+        viewerLevel = 1590 + random.unit() * 200
+        if openingRamp {
+            // A7: a stream opens with a handful of viewers (never fewer than the people already chatting);
+            // more arrive over the next 4–7 minutes.
+            viewers = 4 + random.index(6); rampFrom = Double(viewers); rampDuration = 240 + random.unit() * 180
+        } else {
+            viewers = Int(viewerLevel); rampFrom = viewerLevel; rampDuration = 0; viewersSettled = true
+        }
         self.random = random
         audience.seat(chatterTarget, now: 0, using: &self.random)
         scheduleDonation()
-        // Warm-up: the room was already talking before the host looked at it. Nothing in the warm-up reacts to the host.
+        // Warm-up: the room was already talking before the host looked at it. Nothing in the warm-up reacts to the host,
+        // and the viewer count does not move before the stream starts.
+        warmingUp = true
         for _ in 0..<160 { advance(0.25) }
+        warmingUp = false
         elapsed = 0; donationClock = 0; scenarioClock = 0
     }
 
@@ -362,6 +391,7 @@ struct Simulation {
     mutating func apply(_ value: Settings) {
         let old = settings
         settings = value; settings.normalize()
+        if !settings.localWriting { modelActive = false }
         if old.scenario != settings.scenario {
             endMoment(); step = 0; scenarioClock = 0; activeTopics = []
             let stale = pending.filter { $0.source == .topicOpener }
@@ -422,28 +452,59 @@ struct Simulation {
         if fromCamera { lastCameraEvent = event }
         context = event; contextClock = 0
         switch event {
-        case .win: audienceTarget += max(2, audienceTarget / 40) + random.index(max(3, audienceTarget / 25))
-        case .breakTime: audienceTarget = max(15, audienceTarget - max(3, audienceTarget / 12)); breakActive = true; breakStartedAt = now
+        // A good moment brings a few people in, a break sends some away; both fade and never leave the band.
+        case .win: viewerBump += viewerScale * (15 + random.unit() * 35)
+        case .breakTime: viewerBump -= viewerScale * (40 + random.unit() * 60); breakActive = true; breakStartedAt = now
         case .returnLive: breakActive = false
         // Any other moment the host marks means they are back at the stream.
         default: if !fromCamera { breakActive = false }
         }
         planEventReactions(event, fromCamera: fromCamera)
+        if !fromCamera { remember("the host marked a moment: " + event.rawValue) }
         if event == .win && settings.donationsPerMinute > 0 && random.chance(0.3) {
             nextDonation = min(nextDonation, donationClock + 8 + random.unit() * 20)
         }
     }
 
     /// The host's own message appears immediately; replies are planned with reading and typing time.
-    mutating func send(_ text: String) {
+    /// Returns the message ID when the text waits for an on-device translation.
+    @discardableResult mutating func send(_ text: String) -> UUID? {
         let value = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-        guard running, !value.isEmpty else { return }
+        guard running, !value.isEmpty else { return nil }
         let hostMessage = ChatMessage(id: UUID(), participantID: nil, name: settings.channelName, avatar: String(settings.channelName.prefix(2)).uppercased(), color: 0, text: value, isHost: true, postedAt: now)
         append(hostMessage)
         let intent = HostIntent.parse(value)
         lastHostIntent = intent
         if let event = intent.event { trigger(event) }
+        // Text the audience may not read is translated on the device first, if the phone can.
+        if intent.kind == .nonEnglish && translationAvailable { awaitingTranslation[hostMessage.id] = now; return hostMessage.id }
+        if intent.kind != .nonEnglish { remember("host said: " + value) }
         planHostReplies(to: hostMessage, intent: intent)
+        return nil
+    }
+
+    mutating func setModelActive(_ active: Bool) { modelActive = active && settings.localWriting }
+    mutating func setTranslationAvailable(_ available: Bool) { translationAvailable = available }
+
+    /// The on-device translation of a non-English host message arrived: chat now reacts to its meaning.
+    /// `nil` means the phone could not translate it: chat reacts as viewers who cannot read it would.
+    mutating func hostTranslation(_ english: String?, for messageID: UUID) {
+        guard running, awaitingTranslation.removeValue(forKey: messageID) != nil,
+              let original = messages.first(where: { $0.id == messageID }) else { return }
+        let text = String((english ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        let intent = HostIntent.parse(text)
+        let originalIntent = HostIntent.parse(original.text)
+        guard !text.isEmpty, intent.kind != .nonEnglish else { planHostReplies(to: original, intent: originalIntent); return }
+        if let event = intent.event, originalIntent.event == nil { trigger(event) }
+        remember("host said (translated): " + text)
+        // Replies read the English meaning but still answer the host's own message.
+        let reading = ChatMessage(id: original.id, participantID: nil, name: original.name, avatar: original.avatar, color: 0, text: text, isHost: true, postedAt: original.postedAt)
+        planHostReplies(to: reading, intent: intent)
+    }
+
+    private mutating func remember(_ note: String) {
+        memoryNotes.append((String(note.prefix(160)), now))
+        if memoryNotes.count > 12 { memoryNotes.removeFirst(memoryNotes.count - 12) }
     }
 
     /// B6: the host thanks the latest donor. The donor may answer later; nobody answers instantly.
@@ -459,7 +520,9 @@ struct Simulation {
     mutating func makeWritingRequest(maxSlots: Int = 4) -> WritingRequest? {
         guard running, settings.localWriting else { return nil }
         var slots: [WritingSlot] = []
-        for index in pending.indices where slots.count < maxSlots {
+        // Replies to the host come first: they are what the host is waiting for.
+        let order = pending.indices.sorted { (pending[$0].source == .hostReply ? 0 : 1, pending[$0].due) < (pending[$1].source == .hostReply ? 0 : 1, pending[$1].due) }
+        for index in order where slots.count < maxSlots {
             let message = pending[index]
             guard message.writerEligible, !message.writerRequested, message.due - now >= 3.5, message.expires - now >= 8,
                   let person = audience[message.participant] else { continue }
@@ -467,12 +530,22 @@ struct Simulation {
             slots.append(WritingSlot(id: message.id, kind: kind, voice: person.voice.summary, about: message.prompt, maxLength: person.voice.brevity > 0.66 ? 60 : 120))
             pending[index].writerRequested = true
         }
-        if aiScene != activeScenario { aiAmbient = []; aiScene = activeScenario }
-        let ambient = aiAmbient.count < 4 ? 6 : 0
-        guard !slots.isEmpty || ambient > 0 else { return nil }
+        if aiScene != activeScenario { aiAmbient = []; aiTopics = []; aiScene = activeScenario }
+        // Background lines are asked for at most every 20 s so the model is not busy all the time.
+        let backgroundDue = now - lastAmbientRequest >= 20
+        let ambient = backgroundDue && aiAmbient.count < 4 ? 5 : 0
+        let topicWanted = backgroundDue && aiTopics.count < 2
+        guard !slots.isEmpty || ambient > 0 || topicWanted else { return nil }
+        if ambient > 0 || topicWanted { lastAmbientRequest = now }
         let recent = messages.suffix(16).map { ($0.isHost ? Self.hostLabel : "viewer") + ": " + $0.text }
         let hint = context?.fact ?? visualScene?.fact ?? "No specific action is confirmed."
-        return WritingRequest(category: activeScenario.category, streamTitle: settings.streamTitle, visualHint: hint, recentChat: recent, slots: slots, ambientCount: ambient)
+        var request = WritingRequest(category: activeScenario.category, streamTitle: settings.streamTitle, visualHint: hint, recentChat: recent, slots: slots, ambientCount: ambient)
+        request.memory = memoryNotes.map { note in
+            let minutes = Int((now - note.at) / 60)
+            return (minutes < 1 ? "just now" : "\(minutes) min ago") + ": " + note.text
+        }
+        request.topicWanted = topicWanted
+        return request
     }
 
     /// Returns how many generated lines were accepted. Lines for messages that were already shown,
@@ -487,7 +560,7 @@ struct Simulation {
             guard pending[index].expires > now + 1, Self.acceptableModelLine(line, maxLength: slot.maxLength), memory.accept(line),
                   let person = audience[pending[index].participant] else { continue }
             // A longer reworded line takes longer to type than the placeholder it replaces.
-            let extraTyping = Double(max(0, line.count - pending[index].text.count)) / person.voice.typingCharactersPerSecond
+            let extraTyping = pending[index].requiresModel ? 0 : Double(max(0, line.count - pending[index].text.count)) / person.voice.typingCharactersPerSecond
             let newDue = pending[index].due + extraTyping
             guard newDue < pending[index].expires else { continue }
             pending[index].text = line; pending[index].writtenByModel = true; pending[index].due = newDue
@@ -501,6 +574,21 @@ struct Simulation {
             }
             aiAmbient = Array(aiAmbient.suffix(12))
             accepted += added
+        }
+        // A fresh topic invented by the model: one opener and a few independent answers from different people.
+        if request.topicWanted, let topic = result.topic, aiScene == activeScenario, request.streamTitle == settings.streamTitle {
+            let question = topic.question.trimmingCharacters(in: .whitespacesAndNewlines)
+            var answers: [String] = []
+            for raw in topic.answers.prefix(4) {
+                let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if Self.acceptableModelLine(value, maxLength: 100), memory.allows(value), !answers.contains(value), value != question { answers.append(value) }
+            }
+            if Self.acceptableModelLine(question, maxLength: 110), question.hasSuffix("?"), memory.allows(question), answers.count >= 2, aiTopics.count < 3 {
+                let made = ChatTopic(id: "ai." + UUID().uuidString, scenes: [activeScenario.rawValue, "any"], openers: [question], answers: answers, followUps: [], hostKeywords: [])
+                aiTopics.append(made); aiTopicByID[made.id] = made
+                if aiTopicByID.count > 40 { aiTopicByID = aiTopicByID.filter { id, _ in aiTopics.contains { $0.id == id } || activeTopics.contains { $0.topicID == id } } }
+                accepted += 1 + answers.count
+            }
         }
         metrics.modelAccepted(accepted)
         return accepted
@@ -548,6 +636,7 @@ struct Simulation {
         let time = now
         audience.update(donorID) { $0.sessionTips += 1; $0.sessionTipTotal += amount; $0.lastSpokeAt = time; $0.messages += 1 }
         lastDonorID = donorID; lastDonationAt = now
+        remember("a viewer tipped " + USD.format(amount) + (returning ? " (not their first tip)" : ""))
         giftHistory.append(gift); if giftHistory.count > 200 { giftHistory.removeFirst(giftHistory.count - 200) }
         if donation == nil && donationQueue.isEmpty && bannerGap <= 0 { display(gift) } else { donationQueue.append(gift) }
         append(ChatMessage(id: UUID(), participantID: donorID, name: donor.name, avatar: donor.avatar, color: donor.color, text: USD.format(amount) + (note.isEmpty ? " tip" : " · " + note), isDonation: true, source: .gift, postedAt: now))
@@ -583,6 +672,11 @@ struct Simulation {
         if settings.autoplay && scenarioClock >= 50 {
             let events = activeScenario.timeline; trigger(events[step % events.count]); step += 1; scenarioClock = 0
         }
+        // No translation in time: react as viewers who cannot read the message would.
+        for (id, at) in awaitingTranslation where now - at > 8 {
+            awaitingTranslation[id] = nil
+            if let original = messages.first(where: { $0.id == id }) { planHostReplies(to: original, intent: HostIntent.parse(original.text)) }
+        }
         direct(dt)
         deliver(dt)
         if settings.donationsPerMinute > 0 && donationClock >= nextDonation && elapsed > 0 {
@@ -614,6 +708,7 @@ struct Simulation {
     }
     private func dropReason(_ message: PlannedMessage) -> DropReason? {
         if now > message.expires { return .expired }
+        if message.requiresModel && !message.writtenByModel { return .noModelText }
         if let epoch = message.eventEpoch, epoch != eventEpoch { return .staleContext }
         if let parent = message.replyToMessage, !isVisible(parent), !pending.contains(where: { $0.id == parent }) { return .staleContext }
         guard let person = audience[message.participant], person.present || message.source == .presence else { return .speakerLeft }
@@ -680,6 +775,8 @@ struct Simulation {
         if !activeTopics.isEmpty { options.append((0.22, 1)) }
         options.append((0.1, 2))
         if !aiAmbient.isEmpty { options.append((0.4, 3)) }
+        // A topic the model just invented fits the moment now, so it is used soon even in a busy room.
+        if !aiTopics.isEmpty { options.append((activeTopics.count < 2 ? 0.35 : 0.12, 6)) }
         options.append((0.08, 4))
         if now >= nextPollAllowed { options.append((0.12, 5)) }
         var roll = random.unit() * options.reduce(0) { $0 + $1.0 }
@@ -687,11 +784,12 @@ struct Simulation {
         for (w, c) in options { roll -= w; if roll < 0 { choice = c; break } }
         var produced = 0
         switch choice {
-        case 0: produced = startTopic()
+        case 0: produced = !aiTopics.isEmpty && random.chance(0.4) ? startAITopic() : startTopic()
         case 1: produced = lateAnswer()
         case 2: produced = viewerToHost()
         case 3: produced = ambientModelLine()
         case 5: produced = startDebate()
+        case 6: produced = startAITopic()
         default: produced = sideReaction()
         }
         if produced == 0 { produced = startTopic() }
@@ -709,9 +807,19 @@ struct Simulation {
 
     private var sceneKeys: Set<String> { ["any", activeScenario.rawValue] }
 
-    private mutating func startTopic() -> Int {
+    private mutating func startAITopic() -> Int {
+        guard !aiTopics.isEmpty else { return 0 }
+        let topic = aiTopics.removeFirst()
+        let produced = startTopic(forced: topic)
+        // Nobody free to ask it right now: keep it for a later turn while it is still fresh.
+        if produced == 0 && memory.allows(topic.openers[0]) { aiTopics.insert(topic, at: 0) }
+        return produced
+    }
+
+    /// `forced` is a topic the model just invented; otherwise one is chosen from the library.
+    private mutating func startTopic(forced: ChatTopic? = nil) -> Int {
         let keys = sceneKeys
-        let candidates = Self.allTopics.filter { topic in
+        let candidates = forced.map { [$0] } ?? Self.allTopics.filter { topic in
             guard topic.scenes.contains(where: keys.contains) else { return false }
             let use = topicUse[topic.id] ?? TopicUse()
             return now - use.lastStarted > Self.topicCooldown && use.openersUsed.count < topic.openers.count && topic.answers.count - use.answersUsed.count >= 1
@@ -789,7 +897,7 @@ struct Simulation {
         guard !activeTopics.isEmpty else { return 0 }
         let i = random.index(activeTopics.count)
         var active = activeTopics[i]
-        guard isVisible(active.openerMessage), let topic = Self.topicByID[active.topicID], var use = topicUse[topic.id] else { return 0 }
+        guard isVisible(active.openerMessage), let topic = Self.topicByID[active.topicID] ?? aiTopicByID[active.topicID], var use = topicUse[topic.id] else { return 0 }
         let openerText = messages.first { $0.id == active.openerMessage }?.text ?? ""
         let askedAt = visibleAt[active.openerMessage] ?? now
         guard now - askedAt < 45 else { return 0 }
@@ -977,12 +1085,12 @@ struct Simulation {
             responders.append(id)
         }
         let topic = matchingTopic(intent)
-        var evasions = 0
+        var evasions = 0, modelOnly = 0
         let laughFiller = ["lol", "lmao", "haha", "hahaha", "lmfao"].contains { intent.body.contains($0) }
         for (order, id) in responders.enumerated() {
             guard let person = audience[id] else { continue }
             var line: String?
-            var quick = false
+            var quick = false, needsModel = false
             let isMentioned = mentioned.contains(id)
             switch intent.kind {
             case .choice(let a, let b):
@@ -998,6 +1106,9 @@ struct Simulation {
                 if let topic { line = topicAnswer(topic, voice: person.voice) }
                 // Without a fitting answer, one person may admit it; the others just do not reply.
                 if line == nil && evasions == 0 { line = hostLine("open"); evasions += 1 }
+                // With Apple Intelligence on, a few more people answer in substance. Their text exists only
+                // if the model writes it; otherwise the line is dropped, never shown as a placeholder.
+                else if line == nil && modelActive && modelOnly < 3 { line = Self.modelPlaceholder; needsModel = true; modelOnly += 1 }
             case .greeting: line = hostLine("greeting"); quick = true
             case .howAreYou: line = hostLine("howAreYou")
             case .thanks: line = hostLine("thanks"); quick = true
@@ -1014,15 +1125,26 @@ struct Simulation {
             case .nonEnglish: line = hostLine("nonEnglish")
             }
             guard let chosen = line else { continue }
-            let kind: ReactionTiming.Kind = quick || Self.isShort(chosen) ? .quick : .reply
-            var due = now + ReactionTiming.delay(voice: person.voice, kind: kind, readText: text, replyLength: chosen.count, using: &random)
+            var eligible: Bool
+            switch intent.kind { case .openQuestion, .statement(.opinion), .howAreYou: eligible = !quick; default: eligible = false }
+            if modelActive {
+                switch intent.kind {
+                case .openQuestion: eligible = true
+                case .yesNoQuestion(.general), .yesNoQuestion(.advice), .statement(.opinion), .statement(.news): eligible = eligible || random.chance(0.6)
+                default: break
+                }
+            }
+            let kind: ReactionTiming.Kind = (quick || Self.isShort(chosen)) && !needsModel && !(eligible && modelActive) ? .quick : .reply
+            var due = now + ReactionTiming.delay(voice: person.voice, kind: kind, readText: text, replyLength: needsModel ? 35 : chosen.count, using: &random)
             // Not everyone finishes at once; a named viewer tends to answer a bit sooner.
             if order > 0 { due += random.unit() * Double(order) * 2.5 }
             let earliest = now + (kind == .quick ? 1.3 : 2.6)
             due = max(due, earliest)
-            let eligible: Bool
-            switch intent.kind { case .openQuestion, .statement(.opinion), .howAreYou: eligible = !quick; default: eligible = false }
-            schedule(PlannedMessage(participant: id, text: chosen, source: .hostReply, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: earliest, due: due, expires: due + 45, eventEpoch: nil, topicID: nil, prompt: text, writerEligible: eligible))
+            // A line the model will word needs a few seconds for the request; a real person needs them to type anyway.
+            if eligible && modelActive { due = max(due, now + 6 + random.unit() * 3) }
+            var planned = PlannedMessage(participant: id, text: chosen, source: .hostReply, addressee: .host, replyToMessage: host.id, causeTime: now, earliest: earliest, due: due, expires: due + 45, eventEpoch: nil, topicID: nil, prompt: text, writerEligible: eligible)
+            planned.requiresModel = needsModel
+            schedule(planned)
         }
         planAcknowledgement(to: host, intent: intent, mentioned: mentioned, responders: responders)
         planDonorThanks(to: host, intent: intent, mentioned: mentioned)
@@ -1153,11 +1275,34 @@ struct Simulation {
 
     // MARK: Audience dynamics
 
+    /// Event effects are smaller while the room is still filling up.
+    private var viewerScale: Double { viewersSettled ? 1 : max(0.05, Double(viewers) / viewerLevel) }
+
     private mutating func updateViewers() {
-        // Drifts around the room's usual size instead of wandering off to an extreme.
-        let pull = Double(baseViewers - audienceTarget) * 0.02
-        audienceTarget = min(12000, max(15, audienceTarget + Int((pull + random.gaussian() * Double(max(1, baseViewers)).squareRoot() * 0.12).rounded())))
-        viewers = max(1, viewers + (audienceTarget - viewers) / 12 + random.index(7) - 3)
+        // Before Go live (and in the warm-up) nobody is watching yet: the count holds still.
+        guard !warmingUp, phase == .live else { return }
+        let low = Self.viewerBand.lowerBound, high = Self.viewerBand.upperBound
+        viewerDrift = viewerDrift * 0.97 + random.gaussian() * 8
+        viewerBump *= 0.985
+        let target: Double
+        var jitter = 2.0
+        if viewersSettled || elapsed >= rampDuration {
+            target = min(Double(high - 3), max(Double(low + 3), viewerLevel + viewerDrift + viewerBump))
+        } else {
+            // People trickle in: a slow start, a steady climb, then it levels off.
+            let p = min(1, elapsed / max(1, rampDuration))
+            let eased = p * p * (3 - 2 * p)
+            target = min(Double(high), max(0, rampFrom + (viewerLevel - rampFrom) * eased + viewerDrift * eased + viewerBump))
+            jitter = 2 * max(0.15, eased)
+        }
+        let next = Double(viewers) + (target - Double(viewers)) * 0.3 + random.gaussian() * jitter
+        viewers = Int(next.rounded())
+        // While the room fills up it never shows fewer viewers than it opened with or than people chatting.
+        if !viewersSettled && elapsed < rampDuration { viewers = max(viewers, Int(rampFrom), audience.presentCount) }
+        // After the ramp the target is inside the band, so a count that lags behind climbs in on its own
+        // instead of jumping to 1,500 in one step.
+        if !viewersSettled && elapsed >= rampDuration && viewers >= low { viewersSettled = true }
+        viewers = viewersSettled ? min(high, max(low, viewers)) : min(high, max(1, viewers))
         if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }
     private mutating func updatePresence() {
@@ -1258,6 +1403,8 @@ struct Simulation {
     }
     /// A short line may recur between people, but not twice in a row: not if it was just shown,
     /// and not if someone else is already about to post the same words.
+    /// Text of a reply that exists only if the model writes it; such a line is never shown as is.
+    static let modelPlaceholder = "(written by the on-device model)"
     private func shortFree(_ line: String) -> Bool {
         let key = TextMemory.canonical(line)
         return !recentShort.contains(key) && !pending.contains { TextMemory.canonical($0.text) == key }

@@ -13,7 +13,7 @@ enum MessageSource: String, Codable, CaseIterable {
 }
 
 enum DropReason: String, CaseIterable {
-    case expired, staleContext, duplicate, speakerLeft, queueFull
+    case expired, staleContext, duplicate, speakerLeft, queueFull, noModelText
 }
 
 /// A message that has an author, a cause and a time window, but has not been shown yet (E3).
@@ -38,6 +38,8 @@ struct PlannedMessage: Identifiable {
     var writerEligible: Bool
     var writerRequested = false
     var writtenByModel = false
+    /// Only worth posting if the model wrote it; otherwise the person simply does not reply.
+    var requiresModel = false
 }
 
 /// Human-like time to notice, read, think and type (A6). Hypotheses for tuning, not statistics.
@@ -259,11 +261,22 @@ struct WritingRequest: Equatable {
     let slots: [WritingSlot]
     /// Fresh neutral lines for later use; authorship is assigned by the app when they are posted.
     let ambientCount: Int
+    /// Short notes on what really happened earlier in this stream (A3), oldest first.
+    var memory: [String] = []
+    /// Ask for one fresh viewer question with a few different answers (a new topic beyond the library).
+    var topicWanted = false
+}
+
+/// A viewer question and independent answers written by the model; the app decides who posts them and when.
+struct GeneratedTopic: Equatable {
+    let question: String
+    let answers: [String]
 }
 
 struct WritingResult {
     var slotTexts: [UUID: String]
     var ambient: [String]
+    var topic: GeneratedTopic? = nil
 
     /// Reads the model's structured JSON. Unknown keys are ignored; oversized or malformed output is rejected.
     static func parse(_ json: String, request: WritingRequest) -> WritingResult? {
@@ -274,7 +287,12 @@ struct WritingResult {
             if let value = object["line\(index + 1)"] as? String { texts[slot.id] = value }
         }
         let ambient = (object["ambient"] as? [Any])?.compactMap { $0 as? String } ?? []
-        return WritingResult(slotTexts: texts, ambient: ambient)
+        var topic: GeneratedTopic?
+        if request.topicWanted, let question = object["topic_question"] as? String,
+           let answers = (object["topic_answers"] as? [Any])?.compactMap({ $0 as? String }), !answers.isEmpty {
+            topic = GeneratedTopic(question: question, answers: answers)
+        }
+        return WritingResult(slotTexts: texts, ambient: ambient, topic: topic)
     }
 }
 
