@@ -298,6 +298,7 @@ struct LiveView: View {
                 Button { store.engine.togglePause() } label: {
                     Image(systemName: store.engine.running ? "pause.fill" : "play.fill").frame(width: 42, height: 40).background(accent, in: RoundedRectangle(cornerRadius: 9))
                 }.tint(.white).accessibilityLabel(store.engine.running ? "Pause stream and camera" : "Resume stream and camera")
+                    .disabled(store.engine.phase != .live).opacity(store.engine.phase == .live ? 1 : 0.4)
             }
             HStack(spacing: 16) {
                 Label(store.engine.viewers.formatted(), systemImage: "person.2.fill").foregroundStyle(.red.opacity(0.9))
@@ -342,7 +343,9 @@ struct LiveView: View {
                                 .background(message.isDonation ? accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8)).id(message.id)
                                 .contentShape(Rectangle())
                                 .onTapGesture { if message.participantID != nil { selectedMessage = message } }
+                                .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(message.participantID != nil ? .isButton : [])
+                                .accessibilityHint(message.participantID != nil ? "Opens this viewer's card" : "")
                         }
                     }.padding(14)
                 }.frame(maxHeight: .infinity)
