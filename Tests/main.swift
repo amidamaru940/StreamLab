@@ -425,15 +425,23 @@ let memoryRequest = remembering.makeWritingRequest()
 let notesSoFar = memoryRequest?.memory ?? []
 check(notesSoFar.contains { $0.hasSuffix("host said: my sister visited today") } && notesSoFar.contains { $0.contains("Laugh") } && notesSoFar.contains { $0.contains("tipped") }, "Stream memory for the model holds what really happened")
 
+// Whether anyone answers is a roll of the dice per stream, so the meaning is checked across a few streams.
+var translatedReplies: [PlannedMessage] = []
 var translated = Simulation(settings: writerSettings, seed: 1001, openingRamp: false)
-translated.setTranslationAvailable(true)
-let waitingID = translated.send("Чай или кофе?")
-check(waitingID != nil && !translated.pending.contains { $0.replyToMessage == waitingID }, "Russian host text waits for the on-device translation")
-advance(&translated, seconds: 1)
-translated.hostTranslation("Tea or coffee?", for: waitingID!)
-let translatedReplies = translated.pending.filter { $0.replyToMessage == waitingID }
-check(!translatedReplies.isEmpty && translatedReplies.allSatisfy { $0.due > translated.now + 1 }, "After translation, replies are planned with reading and typing time")
-check(translatedReplies.contains { $0.text.lowercased().contains("tea") || $0.text.lowercased().contains("coffee") }, "Replies follow the translated meaning")
+var waitingID: UUID?
+for seed: UInt64 in 1001..<1011 {
+    var t = Simulation(settings: writerSettings, seed: seed, openingRamp: false)
+    t.setTranslationAvailable(true)
+    let id = t.send("Чай или кофе?")
+    check(id != nil && !t.pending.contains { $0.replyToMessage == id }, "Russian host text waits for the on-device translation")
+    advance(&t, seconds: 1)
+    t.hostTranslation("Tea or coffee?", for: id!)
+    let replies = t.pending.filter { $0.replyToMessage == id }
+    check(replies.allSatisfy { $0.due > t.now + 1 }, "After translation, replies are planned with reading and typing time")
+    translatedReplies += replies
+    if seed == 1001 { translated = t; waitingID = id }
+}
+check(translatedReplies.count >= 5 && translatedReplies.contains { $0.text.lowercased().contains("tea") } && translatedReplies.contains { $0.text.lowercased().contains("coffee") }, "Replies follow the translated meaning")
 check(translated.makeWritingRequest()?.memory.contains { $0.hasSuffix("host said (translated): Tea or coffee?") } == true, "The translated meaning is remembered for the model")
 let repliesBefore = translated.pending.filter { $0.replyToMessage == waitingID }.count
 translated.hostTranslation("Tea or coffee?", for: waitingID!)
@@ -516,9 +524,10 @@ check(summary.total == cycle.total && summary.gifts == 1 && summary.duration == 
 
 // MARK: Viewer count: opens small, fills up over minutes, then stays in the owner's band (6.1)
 var opening = Simulation(settings: quiet, seed: 4040)
-check(opening.viewers <= 5 && !opening.viewersSettled, "A stream opens with only a handful of viewers")
+let openingStart = opening.viewers
+check(openingStart >= 4 && openingStart <= 9 && openingStart >= opening.presentChatters && !opening.viewersSettled, "A stream opens with only a handful of viewers, no fewer than the people chatting")
 opening.prepare(); advance(&opening, seconds: 30)
-check(opening.viewers <= 5, "Before Go live the viewer count does not move")
+check(opening.viewers == openingStart, "Before Go live the viewer count does not move")
 opening.goLive()
 let openedAt = opening.now
 var openingSamples: [Int] = []
@@ -528,7 +537,8 @@ check(openingSamples[4] < 150, "Viewers arrive gradually: still few after 15 sec
 check(openingSamples[19] < 900, "No sudden jump: under 900 after a minute (\(openingSamples[19]))")
 let biggestStep = zip(openingSamples, openingSamples.dropFirst()).map { $1 - $0 }.max() ?? 0
 check(biggestStep <= 60, "The count climbs in small steps (largest step \(biggestStep) in 3 s)")
-check(openingSamples.indices.dropFirst(10).allSatisfy { openingSamples[$0] >= openingSamples[$0 - 10] - 20 }, "While the room fills up the count mostly grows")
+// The first two minutes are always within the first half of the 4–7 minute ramp, where it climbs.
+check((10..<40).allSatisfy { openingSamples[$0] >= openingSamples[$0 - 10] - 20 }, "While the room fills up the count mostly grows")
 check(opening.viewersSettled && Simulation.viewerBand.contains(opening.viewers), "After the opening minutes the count is inside 1,500–1,872 (\(opening.viewers))")
 check(openingChat > 0 && opening.presentChatters > 15, "Chat runs while people arrive, and more of them chat once the room is full")
 var bandMin = Int.max, bandMax = Int.min

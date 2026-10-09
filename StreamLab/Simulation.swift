@@ -329,8 +329,9 @@ struct Simulation {
         // The level the room settles at differs per stream; drift around it stays inside the band.
         viewerLevel = 1590 + random.unit() * 200
         if openingRamp {
-            // A7: a stream opens with a handful of viewers; people arrive over the next 4–7 minutes.
-            viewers = random.index(6); rampFrom = Double(viewers); rampDuration = 240 + random.unit() * 180
+            // A7: a stream opens with a handful of viewers (never fewer than the people already chatting);
+            // more arrive over the next 4–7 minutes.
+            viewers = 4 + random.index(6); rampFrom = Double(viewers); rampDuration = 240 + random.unit() * 180
         } else {
             viewers = Int(viewerLevel); rampFrom = viewerLevel; rampDuration = 0; viewersSettled = true
         }
@@ -1284,7 +1285,7 @@ struct Simulation {
         viewerDrift = viewerDrift * 0.97 + random.gaussian() * 8
         viewerBump *= 0.985
         let target: Double
-        if viewersSettled {
+        if viewersSettled || elapsed >= rampDuration {
             target = min(Double(high - 3), max(Double(low + 3), viewerLevel + viewerDrift + viewerBump))
         } else {
             // People trickle in: a slow start, a steady climb, then it levels off.
@@ -1294,8 +1295,10 @@ struct Simulation {
         }
         let next = Double(viewers) + (target - Double(viewers)) * 0.3 + random.gaussian() * 2
         viewers = Int(next.rounded())
-        if !viewersSettled && elapsed >= rampDuration && (viewers >= low || elapsed >= rampDuration + 60) { viewersSettled = true }
-        viewers = viewersSettled ? min(high, max(low, viewers)) : min(high, max(0, viewers))
+        // After the ramp the target is inside the band, so a count that lags behind climbs in on its own
+        // instead of jumping to 1,500 in one step.
+        if !viewersSettled && elapsed >= rampDuration && viewers >= low { viewersSettled = true }
+        viewers = viewersSettled ? min(high, max(low, viewers)) : min(high, max(1, viewers))
         if elapsed > 0 { peakViewers = max(peakViewers, viewers) }
     }
     private mutating func updatePresence() {
