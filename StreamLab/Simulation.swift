@@ -284,6 +284,7 @@ struct Simulation {
     private var thankedDonations: Set<UUID> = []
     private var lastHostIntent: HostIntent?
     private var debatesUsed: Set<Int> = []
+    private var nextPollAllowed = 0.0, nextHostQuestionAllowed = 0.0
     private var templateUsedAt: [String: Double] = [:]
     private var contentClock = 1000.0
     private var lastModelDelivery = -10000.0
@@ -622,7 +623,7 @@ struct Simulation {
         options.append((0.1, 2))
         if !aiAmbient.isEmpty { options.append((0.4, 3)) }
         options.append((0.08, 4))
-        options.append((0.14, 5))
+        if now >= nextPollAllowed { options.append((0.12, 5)) }
         var roll = random.unit() * options.reduce(0) { $0 + $1.0 }
         var choice = options[0].1
         for (w, c) in options { roll -= w; if roll < 0 { choice = c; break } }
@@ -636,7 +637,7 @@ struct Simulation {
         default: produced = sideReaction()
         }
         if produced == 0 { produced = startTopic() }
-        if produced == 0 { produced = startDebate() }
+        if produced == 0 && now >= nextPollAllowed { produced = startDebate() }
         if produced == 0 { produced = lateAnswer() + viewerToHost() }
         if produced == 0 {
             if idleSince == nil { idleSince = now }
@@ -734,11 +735,13 @@ struct Simulation {
     }
 
     private mutating func viewerToHost() -> Int {
-        guard !breakActive, !pending.contains(where: { $0.source == .viewerToHost }) else { return 0 }
+        // A few questions for the streamer are natural; a constant stream of them reads like a script.
+        guard !breakActive, now >= nextHostQuestionAllowed, !pending.contains(where: { $0.source == .viewerToHost }) else { return 0 }
         let lines = (random.chance(0.45) ? ChatContent.viewerToHost[activeScenario.rawValue] ?? [] : []) + (ChatContent.viewerToHost["any"] ?? [])
         guard let line = lines.shuffled(using: &random).first(where: { memory.allows($0) }),
               let speaker = audience.pickSpeaker(now: now, using: &random, weight: { $0.voice.curiosity + 0.1 }) else { return 0 }
         memory.accept(line)
+        nextHostQuestionAllowed = now + 45 + random.unit() * 45
         let due = now + 0.5 + random.unit() * 3
         schedule(PlannedMessage(participant: speaker, text: line, source: .viewerToHost, addressee: .host, replyToMessage: nil, causeTime: now, earliest: now, due: due, expires: due + 30, eventEpoch: nil, topicID: nil, prompt: "", writerEligible: false))
         return 1
@@ -778,6 +781,7 @@ struct Simulation {
         let pair = ChoiceDebates.pairs[pairIndex]
         guard let openerText = fill(ChoiceDebates.openers, ["%a": pair.a, "%b": pair.b]) else { return 0 }
         debatesUsed.insert(pairIndex)
+        nextPollAllowed = now + 180 + random.unit() * 120
         let openerDue = now + 0.3 + random.unit() * 2
         let opener = PlannedMessage(participant: openerID, text: openerText, source: .topicOpener, addressee: nil, replyToMessage: nil, causeTime: now, earliest: now, due: openerDue, expires: openerDue + 30, eventEpoch: nil, topicID: "poll", prompt: "", writerEligible: false)
         schedule(opener)
@@ -842,10 +846,11 @@ struct Simulation {
             let use = topicUse[topic.id] ?? TopicUse()
             remaining += max(0, topic.answers.count - use.answersUsed.count) + max(0, topic.openers.count - use.openersUsed.count)
         }
-        remaining += ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }.count * 3
-        remaining += aiAmbient.count
         // Plan for at least a 70-minute session, and always keep 15 minutes in hand.
         let minutesLeft = max(15, (4200 - now) / 60)
+        let polls = ChoiceDebates.pairs.indices.filter { !debatesUsed.contains($0) && ChoiceDebates.pairs[$0].scenes.contains(where: keys.contains) }.count
+        remaining += min(polls, Int(minutesLeft / 4)) * 3
+        remaining += aiAmbient.count
         libraryRateCap = max(3, Double(remaining) / minutesLeft / 0.7)
     }
 
